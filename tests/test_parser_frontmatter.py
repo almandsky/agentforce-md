@@ -47,11 +47,13 @@ Help with orders."""
     assert body == "Help with orders."
 
 
-def test_invalid_yaml():
+def test_invalid_yaml(caplog):
     text = "---\n: invalid: yaml:\n---\nBody"
     fm, body = parse_frontmatter(text)
     # Should fall back gracefully
     assert isinstance(fm, dict)
+    # Should log a warning about the malformed YAML
+    assert any("Malformed YAML frontmatter" in r.message for r in caplog.records)
 
 
 def test_no_closing_delimiter():

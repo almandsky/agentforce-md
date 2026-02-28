@@ -57,6 +57,113 @@ def test_skill_no_frontmatter(tmp_path: Path):
     assert action is None
 
 
+def test_skill_parses_new_action_fields(tmp_path: Path):
+    """New action-level fields (label, require_user_confirmation, etc.) are parsed."""
+    md = tmp_path / "SKILL.md"
+    md.write_text("""---
+name: get-order
+description: Get order details
+agentforce:
+  target: "flow://Get_Order"
+  label: "Get Order"
+  require_user_confirmation: true
+  include_in_progress_indicator: true
+  progress_indicator_message: "Looking up order..."
+  source: "Get_Order_Details"
+---
+""")
+    action = parse_skill_md(md)
+    assert action.label == "Get Order"
+    assert action.require_user_confirmation is True
+    assert action.include_in_progress_indicator is True
+    assert action.progress_indicator_message == "Looking up order..."
+    assert action.source == "Get_Order_Details"
+
+
+def test_skill_parses_new_input_fields(tmp_path: Path):
+    """New input-level fields (label, is_user_input, etc.) are parsed."""
+    md = tmp_path / "SKILL.md"
+    md.write_text("""---
+name: search
+description: Search
+agentforce:
+  target: "flow://Search"
+  inputs:
+    query:
+      type: string
+      description: "Search query"
+      label: "Query"
+      is_user_input: true
+      complex_data_type_name: "QueryType"
+      default_value: "@knowledge.citations_url"
+---
+""")
+    action = parse_skill_md(md)
+    inp = action.inputs[0]
+    assert inp.label == "Query"
+    assert inp.is_user_input is True
+    assert inp.complex_data_type_name == "QueryType"
+    assert inp.default_value == "@knowledge.citations_url"
+
+
+def test_skill_parses_new_output_fields(tmp_path: Path):
+    """New output-level fields (label, complex_data_type_name, etc.) are parsed."""
+    md = tmp_path / "SKILL.md"
+    md.write_text("""---
+name: search
+description: Search
+agentforce:
+  target: "flow://Search"
+  outputs:
+    result:
+      type: string
+      description: "Result"
+      label: "Search Result"
+      complex_data_type_name: "ResultType"
+      filter_from_agent: true
+      is_displayable: false
+---
+""")
+    action = parse_skill_md(md)
+    out = action.outputs[0]
+    assert out.label == "Search Result"
+    assert out.complex_data_type_name == "ResultType"
+    assert out.filter_from_agent is True
+    assert out.is_displayable is False
+
+
+def test_skill_defaults_for_new_fields(tmp_path: Path):
+    """New fields default correctly when not specified in YAML."""
+    md = tmp_path / "SKILL.md"
+    md.write_text("""---
+name: basic
+description: Basic action
+agentforce:
+  target: "flow://Basic"
+  inputs:
+    x:
+      type: string
+  outputs:
+    y:
+      type: string
+---
+""")
+    action = parse_skill_md(md)
+    assert action.label is None
+    assert action.require_user_confirmation is False
+    assert action.include_in_progress_indicator is False
+    assert action.progress_indicator_message is None
+    assert action.source is None
+    assert action.inputs[0].label is None
+    assert action.inputs[0].is_user_input is False
+    assert action.inputs[0].complex_data_type_name is None
+    assert action.inputs[0].default_value is None
+    assert action.outputs[0].label is None
+    assert action.outputs[0].complex_data_type_name is None
+    assert action.outputs[0].filter_from_agent is False
+    assert action.outputs[0].is_displayable is True
+
+
 def test_discover_skills(tmp_project: Path):
     skills_dir = tmp_project / ".claude" / "skills"
     (skills_dir / "skill-a").mkdir()

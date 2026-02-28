@@ -23,7 +23,7 @@ def _make_agent(agent_type=AgentType.SERVICE.value, topics=None, connection=None
     return AgentDefinition(
         config=ConfigBlock(
             developer_name="TestAgent",
-            agent_description="Test",
+            description="Test",
             agent_type=agent_type,
         ),
         topics=topics or [],
@@ -63,6 +63,12 @@ class TestAddLinkedVariables:
         assert by_name["EndUserId"].source == "@MessagingSession.MessagingEndUserId"
         assert by_name["RoutableId"].source == "@MessagingSession.Id"
         assert by_name["ContactId"].source == "@MessagingEndUser.ContactId"
+
+    def test_linked_vars_have_external_visibility(self):
+        agent = _make_agent()
+        add_linked_variables(agent)
+        for var in agent.variables:
+            assert var.visibility == "External"
 
 
 class TestGenerateStartAgent:

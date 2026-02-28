@@ -26,6 +26,7 @@ SERVICE_AGENT_LINKED_VARS = [
         modifier=VariableModifier.LINKED,
         source="@MessagingSession.MessagingEndUserId",
         description="Messaging End User ID",
+        visibility="External",
     ),
     Variable(
         name="RoutableId",
@@ -33,6 +34,7 @@ SERVICE_AGENT_LINKED_VARS = [
         modifier=VariableModifier.LINKED,
         source="@MessagingSession.Id",
         description="Messaging Session ID",
+        visibility="External",
     ),
     Variable(
         name="ContactId",
@@ -40,6 +42,7 @@ SERVICE_AGENT_LINKED_VARS = [
         modifier=VariableModifier.LINKED,
         source="@MessagingEndUser.ContactId",
         description="Contact ID",
+        visibility="External",
     ),
 ]
 
@@ -103,6 +106,7 @@ def add_connection_block(agent: AgentDefinition) -> None:
         return
     if _has_escalation(agent):
         agent.connection = ConnectionBlock()
+
 
 
 def apply_defaults(agent: AgentDefinition) -> None:

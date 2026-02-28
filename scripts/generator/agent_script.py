@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from ..ir.models import (
     ActionDefinition,
     ActionInvocation,
@@ -14,8 +16,10 @@ from ..ir.models import (
     VariableModifier,
 )
 
-# Agent Script uses 3-space indentation
-INDENT = "   "
+logger = logging.getLogger(__name__)
+
+# Agent Script uses 4-space indentation
+INDENT = "    "
 
 
 class AgentScriptGenerator:
@@ -28,17 +32,21 @@ class AgentScriptGenerator:
         """Generate the complete .agent file content."""
         sections = []
 
-        sections.append(self._render_config())
         sections.append(self._render_system())
+        sections.append(self._render_config())
+        sections.append(self._render_language())
 
         vars_block = self._render_variables()
         if vars_block:
             sections.append(vars_block)
 
+        knowledge_block = self._render_knowledge()
+        if knowledge_block:
+            sections.append(knowledge_block)
+
         if self.agent.connection:
             sections.append(self._render_connection())
 
-        sections.append(self._render_language())
         sections.append(self._render_start_agent())
 
         for topic in self.agent.topics:
@@ -48,24 +56,19 @@ class AgentScriptGenerator:
 
     def _render_config(self) -> str:
         c = self.agent.config
-        lines = [
-            "config:",
-            f'{INDENT}developer_name: "{c.developer_name}"',
-            f'{INDENT}agent_description: "{_escape(c.agent_description)}"',
-            f'{INDENT}agent_type: "{c.agent_type}"',
-        ]
+        lines = ["config:"]
+        if c.agent_label:
+            lines.append(f'{INDENT}agent_label: "{_escape(c.agent_label)}"')
+        lines.append(f'{INDENT}developer_name: "{c.developer_name}"')
+        lines.append(f'{INDENT}description: "{_escape(c.description)}"')
+        lines.append(f'{INDENT}agent_type: "{c.agent_type}"')
         if c.default_agent_user:
             lines.append(f'{INDENT}default_agent_user: "{c.default_agent_user}"')
         return "\n".join(lines)
 
     def _render_system(self) -> str:
         s = self.agent.system
-        lines = [
-            "system:",
-            f"{INDENT}messages:",
-            f'{INDENT}{INDENT}welcome: "{_escape(s.welcome_message)}"',
-            f'{INDENT}{INDENT}error: "{_escape(s.error_message)}"',
-        ]
+        lines = ["system:"]
         if s.instructions:
             # Check if multi-line
             if "\n" in s.instructions:
@@ -74,6 +77,11 @@ class AgentScriptGenerator:
                     lines.append(f"{INDENT}{INDENT}{instr_line}")
             else:
                 lines.append(f'{INDENT}instructions: "{_escape(s.instructions)}"')
+        lines.extend([
+            f"{INDENT}messages:",
+            f'{INDENT}{INDENT}welcome: "{_escape(s.welcome_message)}"',
+            f'{INDENT}{INDENT}error: "{_escape(s.error_message)}"',
+        ])
         return "\n".join(lines)
 
     def _render_variables(self) -> str:
@@ -97,7 +105,20 @@ class AgentScriptGenerator:
                 lines.append(f"{INDENT}{INDENT}source: {var.source}")
             if var.description:
                 lines.append(f'{INDENT}{INDENT}description: "{_escape(var.description)}"')
+        if var.visibility:
+            lines.append(f'{INDENT}{INDENT}visibility: "{var.visibility}"')
+        if var.label:
+            lines.append(f'{INDENT}{INDENT}label: "{_escape(var.label)}"')
         return lines
+
+    def _render_knowledge(self) -> str:
+        if self.agent.knowledge is None:
+            return ""
+        lines = [
+            "knowledge:",
+            f"{INDENT}citations_enabled: {_bool(self.agent.knowledge.citations_enabled)}",
+        ]
+        return "\n".join(lines)
 
     def _render_connection(self) -> str:
         conn = self.agent.connection
@@ -122,25 +143,41 @@ class AgentScriptGenerator:
 
     def _render_start_agent(self) -> str:
         sa = self.agent.start_agent
-        lines = [
-            f"start_agent {sa.name}:",
-            f'{INDENT}description: "{_escape(sa.description)}"',
-        ]
+        lines = [f"start_agent {sa.name}:"]
+        if sa.label:
+            lines.append(f'{INDENT}label: "{_escape(sa.label)}"')
+        lines.append(f'{INDENT}description: "{_escape(sa.description)}"')
         lines.extend(self._render_reasoning(sa.reasoning, indent_level=1))
         return "\n".join(lines)
 
     def _render_topic(self, topic: Topic) -> str:
-        lines = [
-            f"topic {topic.name}:",
-            f'{INDENT}description: "{_escape(topic.description)}"',
-        ]
+        lines = [f"topic {topic.name}:"]
+        if topic.label:
+            lines.append(f'{INDENT}label: "{_escape(topic.label)}"')
+        lines.append(f'{INDENT}description: "{_escape(topic.description)}"')
 
-        # Level 1: Action definitions (only those with a target)
+        # Separate resolved (has target) from unresolved action definitions
         valid_defs = [ad for ad in topic.action_definitions if ad.target]
+        unresolved_defs = [ad for ad in topic.action_definitions if not ad.target]
+
         if valid_defs:
             lines.append(f"{INDENT}actions:")
             for action_def in valid_defs:
                 lines.extend(self._render_action_definition(action_def, indent_level=2))
+
+        # Render unresolved actions as commented-out stubs
+        if unresolved_defs:
+            lines.append("")
+            lines.append(f"{INDENT}# TODO: The following actions need agentforce: target in their SKILL.md")
+            lines.append(f"{INDENT}# actions:")
+            for ad in unresolved_defs:
+                lines.append(f"{INDENT}#    {ad.name}:")
+                lines.append(f'{INDENT}#       description: "{_escape(ad.description)}"')
+                lines.append(f'{INDENT}#       target: "flow://TODO_{ad.name}"')
+                logger.warning(
+                    "Action '%s' in topic '%s' rendered as stub (no target)",
+                    ad.name, topic.name,
+                )
 
         # Filter reasoning action invocations to only reference valid actions
         valid_names = {ad.name for ad in valid_defs}
@@ -170,23 +207,50 @@ class AgentScriptGenerator:
         deeper = INDENT * (indent_level + 2)
 
         lines = [f"{indent}{ad.name}:"]
+        if ad.label:
+            lines.append(f'{inner}label: "{_escape(ad.label)}"')
         lines.append(f'{inner}description: "{_escape(ad.description)}"')
 
         if ad.inputs:
             lines.append(f"{inner}inputs:")
             for inp in ad.inputs:
                 lines.append(f"{deeper}{inp.name}: {inp.input_type}")
+                if inp.label:
+                    lines.append(f"{deeper}{INDENT}label: \"{_escape(inp.label)}\"")
                 if inp.description:
                     lines.append(f"{deeper}{INDENT}description: \"{_escape(inp.description)}\"")
+                if inp.is_user_input:
+                    lines.append(f"{deeper}{INDENT}is_user_input: True")
+                if inp.complex_data_type_name:
+                    lines.append(f"{deeper}{INDENT}complex_data_type_name: \"{inp.complex_data_type_name}\"")
+                if inp.default_value:
+                    lines.append(f"{deeper}{INDENT}default_value: {inp.default_value}")
 
         if ad.outputs:
             lines.append(f"{inner}outputs:")
             for out in ad.outputs:
                 lines.append(f"{deeper}{out.name}: {out.output_type}")
+                if out.label:
+                    lines.append(f"{deeper}{INDENT}label: \"{_escape(out.label)}\"")
                 if out.description:
                     lines.append(f"{deeper}{INDENT}description: \"{_escape(out.description)}\"")
+                if out.complex_data_type_name:
+                    lines.append(f"{deeper}{INDENT}complex_data_type_name: \"{out.complex_data_type_name}\"")
+                if out.filter_from_agent:
+                    lines.append(f"{deeper}{INDENT}filter_from_agent: True")
+                if not out.is_displayable:
+                    lines.append(f"{deeper}{INDENT}is_displayable: False")
 
         lines.append(f'{inner}target: "{ad.target}"')
+
+        if ad.require_user_confirmation:
+            lines.append(f"{inner}require_user_confirmation: True")
+        if ad.include_in_progress_indicator:
+            lines.append(f"{inner}include_in_progress_indicator: True")
+        if ad.progress_indicator_message:
+            lines.append(f'{inner}progress_indicator_message: "{_escape(ad.progress_indicator_message)}"')
+        if ad.source:
+            lines.append(f'{inner}source: "{ad.source}"')
 
         return lines
 

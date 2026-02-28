@@ -60,7 +60,7 @@ Each input file type has a dedicated parser:
 |---|---|---|
 | `CLAUDE.md` | `scripts/parser/claude_md.py` | System-level instructions (the agent's persona) |
 | `.claude/agents/*.md` | `scripts/parser/subagent.py` | YAML frontmatter (`name`, `description`, `tools`) + markdown body split into scope and instruction lines |
-| `.claude/skills/*/SKILL.md` | `scripts/parser/skill_md.py` | Optional `agentforce:` frontmatter section with `target`, `inputs`, `outputs` |
+| `.claude/skills/*/SKILL.md` | `scripts/parser/skill_md.py` | Optional `agentforce:` frontmatter section with `target`, `inputs`, `outputs`, `label`, `source`, and other action metadata |
 
 Parsers handle YAML frontmatter extraction (`scripts/parser/frontmatter.py`) and markdown body splitting (`scripts/parser/markdown_utils.py`). Fields that have no Agent Script equivalent (`model`, `maxTurns`, `permissionMode`, `memory`, `isolation`) are logged and dropped.
 
@@ -70,35 +70,37 @@ Parsed data is assembled into a tree of Python dataclasses defined in `scripts/i
 
 ```
 AgentDefinition
-├── ConfigBlock        (developer_name, agent_type, default_agent_user, ...)
-├── SystemBlock        (welcome/error messages, instructions)
-├── Variable[]         (mutable with defaults, linked with sources)
+├── ConfigBlock        (developer_name, description, agent_type, agent_label, default_agent_user)
+├── SystemBlock        (instructions, welcome/error messages)
+├── Variable[]         (mutable with defaults, linked with sources, visibility, label)
 ├── LanguageBlock      (locale settings)
+├── KnowledgeBlock?    (citations_enabled)
 ├── ConnectionBlock?   (escalation routing, if needed)
-├── StartAgent         (entry point with topic transitions)
+├── StartAgent         (entry point with topic transitions, label)
 └── Topic[]
-    ├── ActionDefinition[]   (Level 1: target, inputs, outputs)
+    ├── ActionDefinition[]   (Level 1: target, inputs, outputs, label, source, ...)
     └── ReasoningBlock
         ├── instruction_lines
         ├── conditionals
         └── ActionInvocation[]  (Level 2: with/set bindings, guards)
 ```
 
-Each sub-agent `.md` file becomes a `Topic`. Each tool listed in a sub-agent becomes an `ActionDefinition` and `ActionInvocation`. Skills with an `agentforce:` section supply the real target, inputs, and outputs. Actions without a target (no matching SKILL.md) are omitted from the output since the Agent Script compiler requires every action to have a valid target.
+Each sub-agent `.md` file becomes a `Topic`. Each tool listed in a sub-agent becomes an `ActionDefinition` and `ActionInvocation`. Skills with an `agentforce:` section supply the real target, inputs, and outputs. Actions without a target (no matching SKILL.md) are rendered as commented-out stubs with `# TODO` markers. Use `--strict` to fail the conversion instead.
 
 ### 3. Apply defaults
 
 `scripts/ir/defaults.py` enriches the IR:
 
-- **Linked variables** — Service agents get `EndUserId`, `RoutableId`, and `ContactId` automatically
+- **Linked variables** — Service agents get `EndUserId`, `RoutableId`, and `ContactId` automatically (with `visibility: "External"`)
 - **start_agent** — Auto-generates a hub-and-spoke entry point with `@utils.transition` actions routing to each topic
 - **connection block** — Added if any topic contains an `@utils.escalate` action
+- **Validation** — Developer name length, duplicate topics, empty descriptions, and other constraints are checked before generation
 
 ### 4. Generate
 
 `scripts/generator/agent_script.py` renders the IR into Agent Script DSL text:
 
-- 3-space indentation (matching Salesforce conventions)
+- 4-space indentation (matching Salesforce conventions)
 - `True`/`False` booleans (capitalized)
 - `|` (pipe) for simple multi-line instructions, `->` (arrow) for procedural logic
 - Two-level action system: definitions (what to call) and invocations (how to call it)
@@ -188,13 +190,28 @@ python3 -m scripts.cli preview --api-name AcmeAgent -o MyOrg --client-app my-app
 
 ### CLAUDE.md
 
-Plain markdown. The entire content becomes the agent's `system.instructions`.
+Plain markdown or structured with YAML frontmatter. The body becomes the agent's `system.instructions`.
 
+**Plain markdown** (backwards compatible):
 ```markdown
 You are a customer support agent for Acme Corp.
 Be helpful, professional, and concise.
 Always verify the customer before making changes.
 ```
+
+**Structured with frontmatter**:
+```yaml
+---
+welcome: "Welcome to Acme Support!"
+error: "Something went wrong. Please try again."
+agent_type: AgentforceServiceAgent
+company: Acme Corp
+---
+You are a customer support agent for Acme Corp.
+Be helpful, professional, and concise.
+```
+
+Supported frontmatter fields: `welcome`, `error`, `agent_type`, `company`. Alternatively, use `## Welcome Message`, `## Error Message`, or `## Company` sections in the body (frontmatter takes precedence). Recognized sections are extracted and removed from the instructions.
 
 ### Sub-agent files (`.claude/agents/*.md`)
 
@@ -227,78 +244,98 @@ name: check-order-status
 description: Check the status of a customer order
 agentforce:
   target: "flow://Get_Order_Details"
+  label: "Check Order Status"
+  require_user_confirmation: false
+  include_in_progress_indicator: true
+  progress_indicator_message: "Looking up order..."
+  source: "Get_Order_Details"
   inputs:
     order_id:
       type: string
       description: "The order number"
+      label: "Order ID"
+      is_user_input: true
   outputs:
     status:
       type: string
       description: "Current order status"
+      label: "Status"
 ---
 ```
 
-If a skill's name matches a tool listed in a sub-agent, the target/inputs/outputs are merged into the action definition. Without the `agentforce:` section, the tool is omitted from the generated output (the Agent Script compiler requires every action to have a valid target).
+Only `target` is required in the `agentforce:` section. All other fields are optional:
+- `label` — Human-readable name for the action, input, or output
+- `require_user_confirmation` — Whether user must confirm before execution (default: false)
+- `include_in_progress_indicator` / `progress_indicator_message` — Loading indicator settings
+- `source` — Metadata component API name
+- `is_user_input` — Marks an input as collected from the end user
+- `complex_data_type_name` — For complex/custom data types
+- `filter_from_agent` / `is_displayable` — Control output visibility
+
+If a skill's name matches a tool listed in a sub-agent, the target/inputs/outputs are merged into the action definition. Without the `agentforce:` section, the tool is rendered as a commented-out stub with a `# TODO` marker. Use `--strict` to fail the conversion instead of generating stubs.
 
 ## Output format
 
 The generated `.agent` file follows the Agent Script DSL. Example output for the `multi-topic` template:
 
 ```yaml
-config:
-   developer_name: "AcmeAgent"
-   agent_description: "You are a customer support agent for Acme Corp."
-   agent_type: "AgentforceServiceAgent"
-   default_agent_user: "acmeagent@00dwt00000bvllc880056991.ext"
-
 system:
-   messages:
-      welcome: "Hello! How can I help you today?"
-      error: "Sorry, something went wrong. Please try again."
-   instructions: |
-      You are a customer support agent for Acme Corp.
-      Be helpful, professional, and concise.
-      Always verify the customer before making changes.
+    instructions: |
+        You are a customer support agent for Acme Corp.
+        Be helpful, professional, and concise.
+        Always verify the customer before making changes.
+    messages:
+        welcome: "Hello! How can I help you today?"
+        error: "Sorry, something went wrong. Please try again."
 
-variables:
-   EndUserId: linked string
-      source: @MessagingSession.MessagingEndUserId
-      description: "Messaging End User ID"
-   RoutableId: linked string
-      source: @MessagingSession.Id
-      description: "Messaging Session ID"
-   ContactId: linked string
-      source: @MessagingEndUser.ContactId
-      description: "Contact ID"
+config:
+    developer_name: "AcmeAgent"
+    description: "You are a customer support agent for Acme Corp."
+    agent_type: "AgentforceServiceAgent"
+    default_agent_user: "acmeagent@00dwt00000bvllc880056991.ext"
 
 language:
-   default_locale: "en_US"
-   additional_locales: ""
-   all_additional_locales: False
+    default_locale: "en_US"
+    additional_locales: ""
+    all_additional_locales: False
+
+variables:
+    EndUserId: linked string
+        source: @MessagingSession.MessagingEndUserId
+        description: "Messaging End User ID"
+        visibility: "External"
+    RoutableId: linked string
+        source: @MessagingSession.Id
+        description: "Messaging Session ID"
+        visibility: "External"
+    ContactId: linked string
+        source: @MessagingEndUser.ContactId
+        description: "Contact ID"
+        visibility: "External"
 
 start_agent entry:
-   description: "Entry point - route to appropriate topic"
-   reasoning:
-      instructions: ->
-         | Determine what the customer needs help with.
-         | Route them to the appropriate topic.
-      actions:
-         go_general_faq: @utils.transition to @topic.general_faq
-            description: "Answers general questions about Acme Corp"
-         go_order_support: @utils.transition to @topic.order_support
-            description: "Handles order inquiries and returns"
+    description: "Entry point - route to appropriate topic"
+    reasoning:
+        instructions: ->
+            | Determine what the customer needs help with.
+            | Route them to the appropriate topic.
+        actions:
+            go_general_faq: @utils.transition to @topic.general_faq
+                description: "Answers general questions about Acme Corp"
+            go_order_support: @utils.transition to @topic.order_support
+                description: "Handles order inquiries and returns"
 
 topic general_faq:
-   description: "Answers general questions about Acme Corp"
-   reasoning:
-      instructions: |
-         | Answer general questions about our company.
+    description: "Answers general questions about Acme Corp"
+    reasoning:
+        instructions: |
+            | Answer general questions about our company.
 
 topic order_support:
-   description: "Handles order inquiries and returns"
-   reasoning:
-      instructions: |
-         | Help customers with their orders.
+    description: "Handles order inquiries and returns"
+    reasoning:
+        instructions: |
+            | Help customers with their orders.
 ```
 
 ## What gets dropped
@@ -314,13 +351,13 @@ These Claude Code features have no Agent Script equivalent and are silently drop
 | `isolation` | No equivalent concept |
 | `background` | No equivalent concept |
 
-Tools listed in sub-agents that don't have a corresponding SKILL.md with an `agentforce:` target are also omitted — the Agent Script compiler requires every action to have a valid target string.
+Tools listed in sub-agents that don't have a corresponding SKILL.md with an `agentforce:` target are rendered as commented-out stubs with `# TODO` markers. Use `--strict` to fail the conversion instead.
 
 ## CLI reference
 
 ```
 agentforce-md setup     -o ORG
-agentforce-md convert   --project-root DIR --agent-name NAME [--agent-type TYPE] [--default-agent-user USER] [--output-dir DIR]
+agentforce-md convert   --project-root DIR --agent-name NAME [--agent-type TYPE] [--default-agent-user USER] [--output-dir DIR] [--strict]
 agentforce-md deploy    --api-name NAME -o ORG [--dry-run] [--activate] [--skip-retrieve]
 agentforce-md preview   --api-name NAME -o ORG --client-app APP
 agentforce-md init      --template TEMPLATE [--output-dir DIR]
@@ -330,6 +367,7 @@ agentforce-md init      --template TEMPLATE [--output-dir DIR]
 |---|---|
 | `setup` | Query the org for available ASA users (Einstein Agent User profile) |
 | `convert` | Parse markdown files and generate `.agent` + `.bundle-meta.xml` |
+| `convert --strict` | Fail if any actions are missing targets (instead of generating stubs) |
 | `deploy` | Publish the authoring bundle to the org (compile + deploy). Uses `sf agent publish authoring-bundle` |
 | `deploy --dry-run` | Validate the bundle without publishing. Uses `sf agent validate authoring-bundle` |
 | `deploy --activate` | Also activate the agent after publishing |
@@ -358,7 +396,8 @@ scripts/                      # The converter tool
 ├── ir/
 │   ├── models.py             # Dataclass IR definitions
 │   ├── naming.py             # Name conversion utilities
-│   └── defaults.py           # Auto-generate linked vars, start_agent, connection
+│   ├── defaults.py           # Auto-generate linked vars, start_agent, connection
+│   └── validate.py           # Pre-generation validation (names, duplicates, etc.)
 ├── generator/
 │   ├── agent_script.py       # IR → .agent file text
 │   ├── bundle_meta.py        # Constant bundle-meta.xml
@@ -367,7 +406,7 @@ scripts/                      # The converter tool
     └── sf_cli.py             # Wraps sf agent CLI commands
 
 templates/                    # Starter project templates
-tests/                        # pytest test suite (118 tests)
+tests/                        # pytest test suite (158 tests)
 
 force-app/main/default/       # Generated output (not checked in)
   aiAuthoringBundles/

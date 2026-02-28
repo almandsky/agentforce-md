@@ -9,6 +9,7 @@ from .generator.agent_script import AgentScriptGenerator
 from .generator.bundle_meta import generate_bundle_meta
 from .generator.writer import write_bundle
 from .ir.defaults import apply_defaults
+from .ir.validate import validate_agent
 from .ir.models import (
     AgentDefinition,
     AgentType,
@@ -17,7 +18,7 @@ from .ir.models import (
     Topic,
 )
 from .ir.naming import sanitize_developer_name
-from .parser.claude_md import parse_claude_md
+from .parser.claude_md import parse_claude_md_structured
 from .parser.skill_md import discover_skills, parse_skill_md
 from .parser.subagent import discover_subagents, parse_subagent
 
@@ -30,6 +31,7 @@ def convert(
     agent_type: str = AgentType.SERVICE.value,
     default_agent_user: str = "",
     output_dir: Path | None = None,
+    strict: bool = False,
 ) -> Path:
     """Full conversion pipeline: parse -> IR -> generate -> write.
 
@@ -39,18 +41,23 @@ def convert(
         agent_type: Agent type (AgentforceServiceAgent or AgentforceEmployeeAgent).
         default_agent_user: Default agent user email.
         output_dir: Where to write output. Defaults to project_root/force-app/main/default.
+        strict: If True, fail when any tools lack agentforce: target in their SKILL.md.
 
     Returns:
         Path to the generated bundle directory.
+
+    Raises:
+        ValueError: In strict mode, if any actions are missing targets.
     """
     if output_dir is None:
         output_dir = Path.cwd() / "force-app" / "main" / "default"
 
     dev_name = sanitize_developer_name(agent_name)
 
-    # 1. Parse CLAUDE.md for system instructions
+    # 1. Parse CLAUDE.md for system instructions and optional overrides
     claude_md_path = project_root / "CLAUDE.md"
-    system_instructions = parse_claude_md(claude_md_path)
+    claude_md = parse_claude_md_structured(claude_md_path)
+    system_instructions = claude_md.instructions
     logger.info("Parsed CLAUDE.md: %d chars", len(system_instructions))
 
     # 2. Parse sub-agent files -> topics
@@ -71,6 +78,7 @@ def convert(
             logger.info("Parsed skill '%s' -> action '%s'", sk_path.parent.name, action_def.name)
 
     # 4. Merge skill action definitions into topics
+    unresolved_actions: list[tuple[str, str]] = []  # (topic_name, action_name)
     for topic in topics:
         for i, ad in enumerate(topic.action_definitions):
             if ad.name in skill_actions:
@@ -82,32 +90,68 @@ def convert(
                     ad.inputs = skill_ad.inputs
                 if skill_ad.outputs:
                     ad.outputs = skill_ad.outputs
-                if skill_ad.description and ad.description == ad.name:
+                if skill_ad.description:
+                    old_desc = ad.description
                     ad.description = skill_ad.description
+                    # Also update the matching action invocation description
+                    for inv in topic.reasoning.action_invocations:
+                        if inv.name == ad.name and inv.description == old_desc:
+                            inv.description = skill_ad.description
+            if not ad.target:
+                unresolved_actions.append((topic.name, ad.name))
 
-    # 5. Build the IR
+    if unresolved_actions:
+        for topic_name, action_name in unresolved_actions:
+            logger.warning(
+                "Action '%s' in topic '%s' has no target. "
+                "Create a SKILL.md with agentforce: target to resolve it.",
+                action_name, topic_name,
+            )
+        if strict:
+            names = ", ".join(f"{t}.{a}" for t, a in unresolved_actions)
+            raise ValueError(
+                f"Strict mode: {len(unresolved_actions)} action(s) missing targets: {names}"
+            )
+
+    # 5. Build the IR (with optional overrides from CLAUDE.md)
+    system_block = SystemBlock(instructions=system_instructions)
+    if claude_md.welcome_message:
+        system_block.welcome_message = claude_md.welcome_message
+    if claude_md.error_message:
+        system_block.error_message = claude_md.error_message
+
+    effective_agent_type = claude_md.agent_type or agent_type
+
     agent = AgentDefinition(
         config=ConfigBlock(
             developer_name=dev_name,
-            agent_description=_derive_description(system_instructions, agent_name),
-            agent_type=agent_type,
+            description=_derive_description(system_instructions, agent_name),
+            agent_type=effective_agent_type,
             default_agent_user=default_agent_user,
         ),
-        system=SystemBlock(
-            instructions=system_instructions,
-        ),
+        system=system_block,
         topics=topics,
     )
 
     # 6. Apply defaults (linked vars, start_agent, connection)
     apply_defaults(agent)
 
-    # 7. Generate output
+    # 7. Validate the IR
+    validation_errors = validate_agent(agent)
+    if validation_errors:
+        for err in validation_errors:
+            logger.error("Validation: %s", err)
+        raise ValueError(
+            f"{len(validation_errors)} validation error(s): "
+            + "; ".join(validation_errors)
+        )
+
+    # 8. Generate output
     generator = AgentScriptGenerator(agent)
     agent_content = generator.generate()
     bundle_meta_content = generate_bundle_meta()
 
-    # 8. Write files
+    # 9. Write files
     bundle_dir = write_bundle(output_dir, dev_name, agent_content, bundle_meta_content)
 
     logger.info("Generated bundle at %s", bundle_dir)

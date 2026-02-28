@@ -1,0 +1,48 @@
+system:
+    instructions: |
+        You are a friendly greeting agent.
+        Welcome users warmly and help them with basic questions.
+        Keep responses concise and helpful.
+    messages:
+        welcome: "Hello! How can I help you today?"
+        error: "Sorry, something went wrong. Please try again."
+
+config:
+    developer_name: "HelloAgent"
+    description: "You are a friendly greeting agent."
+    agent_type: "AgentforceServiceAgent"
+
+language:
+    default_locale: "en_US"
+    additional_locales: ""
+    all_additional_locales: False
+
+variables:
+    EndUserId: linked string
+        source: @MessagingSession.MessagingEndUserId
+        description: "Messaging End User ID"
+        visibility: "External"
+    RoutableId: linked string
+        source: @MessagingSession.Id
+        description: "Messaging Session ID"
+        visibility: "External"
+    ContactId: linked string
+        source: @MessagingEndUser.ContactId
+        description: "Contact ID"
+        visibility: "External"
+
+start_agent entry:
+    description: "Entry point - route to appropriate topic"
+    reasoning:
+        instructions: ->
+            | Determine what the customer needs help with.
+            | Route them to the appropriate topic.
+        actions:
+            go_greeter: @utils.transition to @topic.greeter
+                description: "Greets users and answers basic questions"
+
+topic greeter:
+    description: "Greets users and answers basic questions"
+    reasoning:
+        instructions: |
+            | Welcome the user and help them with their questions. Provide friendly, concise responses. If you can't help, let them know and suggest alternatives.

@@ -67,11 +67,18 @@ agents/<agent-dir>/
   .claude/skills/<tool>/SKILL.md     # Optional: action targets
 ```
 
-**CLAUDE.md** — the agent's persona and global instructions:
+**CLAUDE.md** — the agent's persona and global instructions. Can be plain markdown or use YAML frontmatter for overrides:
 ```markdown
+---
+welcome: "Welcome to Acme Support!"
+error: "Something went wrong. Please try again."
+agent_type: AgentforceServiceAgent
+---
 You are a customer support agent for Acme Corp.
 Be helpful, professional, and concise.
 ```
+
+Alternatively, use `## Welcome Message` and `## Error Message` sections in the body instead of frontmatter. Plain markdown (no frontmatter, no sections) also works — the entire content becomes system instructions.
 
 **Sub-agent files** (`.claude/agents/<topic-name>.md`) — one per topic:
 ```yaml
@@ -92,18 +99,29 @@ name: <tool-name>
 description: <what the tool does>
 agentforce:
   target: "flow://FlowApiName"
+  label: "Human-Readable Action Name"
+  require_user_confirmation: false
+  include_in_progress_indicator: true
+  progress_indicator_message: "Processing..."
+  source: "MetadataComponentApiName"
   inputs:
     param_name:
       type: string
       description: "Parameter description"
+      label: "Param Label"
+      is_user_input: true
   outputs:
     result_name:
       type: string
       description: "Output description"
+      label: "Result Label"
+      is_displayable: true
 ---
 ```
 
-**Important**: Tools listed in sub-agents that don't have a matching SKILL.md with an `agentforce:` target will be omitted from the generated .agent file. The Agent Script compiler requires every action to have a valid target.
+All fields except `target` are optional. The `label` fields provide human-readable names. `source` links to the metadata component. `is_user_input` marks inputs collected from the end user. `is_displayable` controls whether outputs are shown to the user.
+
+**Important**: Tools listed in sub-agents that don't have a matching SKILL.md with an `agentforce:` target will be rendered as commented-out stubs with `# TODO` markers in the generated .agent file. Use `--strict` to fail the conversion instead.
 
 ### Step 3: Run the converter
 
@@ -114,6 +132,8 @@ python3 -m scripts.cli convert \
   --default-agent-user "<ASA_USERNAME>"
 ```
 
+Add `--strict` to fail if any tools lack a target instead of generating stubs.
+
 Output goes to `force-app/main/default/aiAuthoringBundles/<AgentName>/` (relative to the current working directory, not the project root). Multiple agents coexist in separate subdirectories.
 
 ### Step 4: Review
@@ -121,7 +141,7 @@ Output goes to `force-app/main/default/aiAuthoringBundles/<AgentName>/` (relativ
 Read the generated .agent file and display it to the user. Highlight:
 - The config block (name, type, ASA user)
 - How many topics were generated
-- Whether any tools were omitted (no target)
+- Whether any tools were rendered as stubs (no target) — look for `# TODO` comments
 
 ### Step 5: Deploy (if approved)
 

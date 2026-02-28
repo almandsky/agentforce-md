@@ -28,7 +28,7 @@ python -m pytest tests/ -v
 
 ## Key conventions
 
-- Agent Script uses 3-space indentation
+- Agent Script uses 4-space indentation
 - Booleans are `True`/`False` (capitalized)
 - Sub-agent names are kebab-case in filenames, snake_case in .agent output
 - Tools without SKILL.md targets generate action stubs with `# TODO` comments

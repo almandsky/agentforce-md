@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
@@ -33,7 +36,8 @@ def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
 
     try:
         frontmatter = yaml.safe_load(yaml_str)
-    except yaml.YAMLError:
+    except yaml.YAMLError as exc:
+        logger.warning("Malformed YAML frontmatter (ignored): %s", exc)
         return {}, text
 
     if not isinstance(frontmatter, dict):

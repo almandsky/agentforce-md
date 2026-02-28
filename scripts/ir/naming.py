@@ -25,6 +25,17 @@ def kebab_to_title(name: str) -> str:
     return name.replace("-", " ").title()
 
 
+def snake_to_label(name: str) -> str:
+    """Convert snake_case to Title Case for labels.
+
+    >>> snake_to_label("order_support")
+    'Order Support'
+    >>> snake_to_label("general_faq")
+    'General Faq'
+    """
+    return name.replace("_", " ").title()
+
+
 def sanitize_developer_name(name: str) -> str:
     """Sanitize a string to be a valid Agent Script developer name.
 

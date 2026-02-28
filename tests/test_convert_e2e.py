@@ -54,15 +54,16 @@ def test_multi_topic_template(tmp_path: Path):
     # System instructions from CLAUDE.md
     assert "customer support agent" in content
 
-    # Tools without targets are omitted from action definitions
-    # (they would cause compile errors), but topics should still exist
-    assert "topic order_support:" in content
-    assert "topic general_faq:" in content
+    # Actions should be resolved from SKILL.md files
+    assert 'target: "flow://Get_Order_Status"' in content
+    assert 'target: "flow://Process_Order_Return"' in content
+    assert 'target: "retriever://Acme_Knowledge_Base"' in content
 
-    # Linked variables for service agent
+    # Linked variables for service agent with visibility
     assert "EndUserId: linked string" in content
     assert "RoutableId: linked string" in content
     assert "ContactId: linked string" in content
+    assert 'visibility: "External"' in content
 
 
 def test_multi_topic_golden_file(tmp_path: Path):
@@ -92,6 +93,28 @@ def test_multi_topic_golden_file(tmp_path: Path):
     )
 
 
+def test_hello_world_golden_file(tmp_path: Path):
+    """Compare hello-world output against golden file."""
+    golden = FIXTURES_DIR / "hello-world-expected.agent"
+
+    bundle_dir = convert(
+        project_root=TEMPLATES_DIR / "hello-world",
+        agent_name="HelloAgent",
+        output_dir=tmp_path,
+    )
+    content = (bundle_dir / "HelloAgent.agent").read_text()
+
+    if not golden.exists():
+        golden.write_text(content)
+        return  # First run creates the golden file
+
+    expected = golden.read_text()
+    assert content == expected, (
+        "Generated output differs from golden file. "
+        "If intentional, delete tests/fixtures/hello-world-expected.agent and re-run."
+    )
+
+
 def test_verification_gate_template(tmp_path: Path):
     """Convert verification-gate template and verify structure."""
     bundle_dir = convert(
@@ -108,6 +131,28 @@ def test_verification_gate_template(tmp_path: Path):
 
     # Should have linked variables
     assert "EndUserId: linked string" in content
+
+
+def test_verification_gate_golden_file(tmp_path: Path):
+    """Compare verification-gate output against golden file."""
+    golden = FIXTURES_DIR / "verification-gate-expected.agent"
+
+    bundle_dir = convert(
+        project_root=TEMPLATES_DIR / "verification-gate",
+        agent_name="SecureAgent",
+        output_dir=tmp_path,
+    )
+    content = (bundle_dir / "SecureAgent.agent").read_text()
+
+    if not golden.exists():
+        golden.write_text(content)
+        return  # First run creates the golden file
+
+    expected = golden.read_text()
+    assert content == expected, (
+        "Generated output differs from golden file. "
+        "If intentional, delete tests/fixtures/verification-gate-expected.agent and re-run."
+    )
 
 
 def test_output_directory_structure(tmp_path: Path):

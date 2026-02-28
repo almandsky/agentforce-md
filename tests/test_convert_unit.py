@@ -53,8 +53,8 @@ class TestSkillMerging:
         assert "order_id: string" in content
         assert "status: string" in content
 
-    def test_no_skill_omits_targetless_actions(self, tmp_path: Path):
-        """Tools without SKILL.md (no target) are omitted from the output."""
+    def test_no_skill_renders_stub_comment(self, tmp_path: Path):
+        """Tools without SKILL.md (no target) are rendered as commented-out stubs."""
         (tmp_path / ".claude" / "agents").mkdir(parents=True)
         (tmp_path / "CLAUDE.md").write_text("Agent instructions.")
 
@@ -69,10 +69,54 @@ class TestSkillMerging:
         )
 
         content = (bundle_dir / "StubTest.agent").read_text()
-        # Action without target should be omitted (would cause compile error)
-        assert "unknown_tool" not in content
-        # But the topic should still exist
+        # Action without target should be a commented-out stub
+        assert "# TODO: The following actions need agentforce: target" in content
+        assert "#    unknown_tool:" in content
+        assert '#       target: "flow://TODO_unknown_tool"' in content
+        # The topic should still exist
         assert "topic topic:" in content
+
+    def test_strict_mode_fails_on_unresolved(self, tmp_path: Path):
+        """In strict mode, unresolved actions should raise ValueError."""
+        import pytest
+
+        (tmp_path / ".claude" / "agents").mkdir(parents=True)
+        (tmp_path / "CLAUDE.md").write_text("Agent instructions.")
+
+        (tmp_path / ".claude" / "agents" / "topic.md").write_text(
+            "---\nname: topic\ndescription: A topic\ntools: UnresolvedTool\n---\nDo things."
+        )
+
+        with pytest.raises(ValueError, match="Strict mode"):
+            convert(
+                project_root=tmp_path,
+                agent_name="StrictTest",
+                output_dir=tmp_path / "out",
+                strict=True,
+            )
+
+    def test_strict_mode_passes_when_all_resolved(self, tmp_path: Path):
+        """In strict mode, fully resolved actions should succeed."""
+        (tmp_path / ".claude" / "agents").mkdir(parents=True)
+        (tmp_path / ".claude" / "skills" / "my-tool").mkdir(parents=True)
+        (tmp_path / "CLAUDE.md").write_text("Agent instructions.")
+
+        (tmp_path / ".claude" / "agents" / "topic.md").write_text(
+            "---\nname: topic\ndescription: A topic\ntools: MyTool\n---\nDo things."
+        )
+        (tmp_path / ".claude" / "skills" / "my-tool" / "SKILL.md").write_text(
+            "---\nname: MyTool\ndescription: A tool\n"
+            "agentforce:\n  target: \"flow://My_Flow\"\n---\nUse this."
+        )
+
+        bundle_dir = convert(
+            project_root=tmp_path,
+            agent_name="StrictPass",
+            output_dir=tmp_path / "out",
+            strict=True,
+        )
+        content = (bundle_dir / "StrictPass.agent").read_text()
+        assert 'target: "flow://My_Flow"' in content
 
     def test_no_subagents_produces_empty_agent(self, tmp_path: Path):
         """A project with only CLAUDE.md and no sub-agents should still produce output."""
