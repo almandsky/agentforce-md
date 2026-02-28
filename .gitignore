@@ -4,3 +4,7 @@ force-app/
 .env
 .cursor/
 .pytest_cache/
+# Python
+__pycache__/
+*.pyc
+*.pyo
