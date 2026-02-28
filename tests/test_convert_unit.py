@@ -88,9 +88,10 @@ class TestSkillMerging:
         assert 'developer_name: "EmptyAgent"' in content
         assert "start_agent entry:" in content
 
-    def test_default_output_dir(self, tmp_path: Path):
-        """When output_dir is None, output goes to project_root/force-app/main/default."""
+    def test_default_output_dir(self, tmp_path: Path, monkeypatch):
+        """When output_dir is None, output goes to cwd/force-app/main/default."""
         (tmp_path / "CLAUDE.md").write_text("Agent.")
+        monkeypatch.chdir(tmp_path)
 
         bundle_dir = convert(
             project_root=tmp_path,

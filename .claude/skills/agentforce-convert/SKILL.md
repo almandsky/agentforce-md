@@ -114,7 +114,7 @@ python3 -m scripts.cli convert \
   --default-agent-user "<ASA_USERNAME>"
 ```
 
-Output goes to `force-app/main/default/aiAuthoringBundles/<AgentName>/` by default. Multiple agents coexist in separate subdirectories.
+Output goes to `force-app/main/default/aiAuthoringBundles/<AgentName>/` (relative to the current working directory, not the project root). Multiple agents coexist in separate subdirectories.
 
 ### Step 4: Review
 
