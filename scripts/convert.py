@@ -44,7 +44,7 @@ def convert(
         Path to the generated bundle directory.
     """
     if output_dir is None:
-        output_dir = project_root / "force-app" / "main" / "default"
+        output_dir = Path.cwd() / "force-app" / "main" / "default"
 
     dev_name = sanitize_developer_name(agent_name)
 
