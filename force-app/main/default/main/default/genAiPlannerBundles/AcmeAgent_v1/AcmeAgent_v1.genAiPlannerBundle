@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenAiPlannerBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>You are a customer support agent for Acme Corp.</description>
+    <localTopicLinks>
+        <genAiPluginName>entry_16jWt000000QqNx</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>general_faq_16jWt000000QqNx</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>order_support_16jWt000000QqNx</genAiPluginName>
+    </localTopicLinks>
+    <localTopics>
+        <fullName>order_support_16jWt000000QqNx</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Handles order inquiries and returns</description>
+        <developerName>order_support_16jWt000000QqNx</developerName>
+        <genAiPluginInstructions>
+            <description>You are a customer support agent for Acme Corp.
+Be helpful, professional, and concise.
+Always verify the customer before making changes.</description>
+            <developerName>instruction0_179Wt000000CTXh</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179Wt000000CTXh</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>order_support</localDeveloperName>
+        <masterLabel>Order Support</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>general_faq_16jWt000000QqNx</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Answers general questions about Acme Corp</description>
+        <developerName>general_faq_16jWt000000QqNx</developerName>
+        <genAiPluginInstructions>
+            <description>You are a customer support agent for Acme Corp.
+Be helpful, professional, and concise.
+Always verify the customer before making changes.</description>
+            <developerName>instruction0_179Wt000000CTXi</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179Wt000000CTXi</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>general_faq</localDeveloperName>
+        <masterLabel>General Faq</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>entry_16jWt000000QqNx</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Entry point - route to appropriate topic</description>
+        <developerName>entry_16jWt000000QqNx</developerName>
+        <genAiPluginInstructions>
+            <description>You are a customer support agent for Acme Corp.
+Be helpful, professional, and concise.
+Always verify the customer before making changes.</description>
+            <developerName>instruction0_179Wt000000CTXj</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179Wt000000CTXj</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>entry</localDeveloperName>
+        <masterLabel>Entry</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <masterLabel>Acme Agent</masterLabel>
+    <plannerType>Atlas__ConcurrentMultiAgentOrchestration</plannerType>
+</GenAiPlannerBundle>

@@ -1,0 +1,19 @@
+[project]
+name = "agentforce-md"
+version = "0.1.0"
+description = "Convert Claude Code markdown conventions to Agentforce Agent Script (.agent) files"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+agentforce-md = "scripts.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

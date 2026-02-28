@@ -1,0 +1,54 @@
+config:
+   developer_name: "AcmeAgent"
+   agent_description: "You are a customer support agent for Acme Corp."
+   agent_type: "AgentforceServiceAgent"
+   default_agent_user: "acmeagent@00dwt00000bvllc880056991.ext"
+
+system:
+   messages:
+      welcome: "Hello! How can I help you today?"
+      error: "Sorry, something went wrong. Please try again."
+   instructions: |
+      You are a customer support agent for Acme Corp.
+      Be helpful, professional, and concise.
+      Always verify the customer before making changes.
+
+variables:
+   EndUserId: linked string
+      source: @MessagingSession.MessagingEndUserId
+      description: "Messaging End User ID"
+   RoutableId: linked string
+      source: @MessagingSession.Id
+      description: "Messaging Session ID"
+   ContactId: linked string
+      source: @MessagingEndUser.ContactId
+      description: "Contact ID"
+
+language:
+   default_locale: "en_US"
+   additional_locales: ""
+   all_additional_locales: False
+
+start_agent entry:
+   description: "Entry point - route to appropriate topic"
+   reasoning:
+      instructions: ->
+         | Determine what the customer needs help with.
+         | Route them to the appropriate topic.
+      actions:
+         go_general_faq: @utils.transition to @topic.general_faq
+            description: "Answers general questions about Acme Corp"
+         go_order_support: @utils.transition to @topic.order_support
+            description: "Handles order inquiries and returns"
+
+topic general_faq:
+   description: "Answers general questions about Acme Corp"
+   reasoning:
+      instructions: |
+         | Answer general questions about our company. If you don't know the answer, say so honestly.
+
+topic order_support:
+   description: "Handles order inquiries and returns"
+   reasoning:
+      instructions: |
+         | Help customers with their orders. Always look up the order before processing a return. If the order is older than 30 days, escalate to a manager.
