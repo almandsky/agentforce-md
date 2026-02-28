@@ -136,14 +136,28 @@ Add `--strict` to fail if any tools lack a target instead of generating stubs.
 
 Output goes to `force-app/main/default/aiAuthoringBundles/<AgentName>/` (relative to the current working directory, not the project root). Multiple agents coexist in separate subdirectories.
 
-### Step 4: Review
+### Step 4: Discover (optional)
+
+Check that SKILL.md targets exist in the org before deploying:
+
+```bash
+python3 -m scripts.cli discover --project-root agents/<agent-dir> -o <TargetOrg>
+```
+
+If targets are missing, scaffold stubs:
+
+```bash
+python3 -m scripts.cli scaffold --project-root agents/<agent-dir> -o <TargetOrg>
+```
+
+### Step 5: Review
 
 Read the generated .agent file and display it to the user. Highlight:
 - The config block (name, type, ASA user)
 - How many topics were generated
 - Whether any tools were rendered as stubs (no target) — look for `# TODO` comments
 
-### Step 5: Deploy (if approved)
+### Step 6: Deploy (if approved)
 
 ```bash
 # Validate first

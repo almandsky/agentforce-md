@@ -353,6 +353,68 @@ These Claude Code features have no Agent Script equivalent and are silently drop
 
 Tools listed in sub-agents that don't have a corresponding SKILL.md with an `agentforce:` target are rendered as commented-out stubs with `# TODO` markers. Use `--strict` to fail the conversion instead.
 
+## Bridge layer: discover, scaffold, run
+
+SKILL.md files reference Salesforce org resources (flows, apex classes) that may not exist yet. The bridge layer connects markdown definitions to live orgs:
+
+```
+  discover              scaffold              run
+  ┌─────────┐          ┌─────────┐          ┌─────────┐
+  │ Query   │          │ Generate│          │ Invoke  │
+  │ org for │──missing──▶ flow/  │          │ actions │
+  │ targets │          │ apex   │          │ via API │
+  └────┬────┘          │ stubs  │          └────┬────┘
+       │               └────┬────┘               │
+       ▼                    ▼                    ▼
+  ┌──────────────────────────────────────────────┐
+  │           Salesforce org (sf CLI)            │
+  └──────────────────────────────────────────────┘
+```
+
+### Discover
+
+Check which SKILL.md targets exist in the org:
+
+```bash
+python3 -m scripts.cli discover --project-root my-agent -o MyOrg
+```
+
+Outputs a table of targets with found/missing status. Exit code 1 if any are missing.
+
+### Scaffold
+
+Generate stub metadata for missing targets:
+
+```bash
+# Discover + scaffold missing targets
+python3 -m scripts.cli scaffold --project-root my-agent -o MyOrg
+
+# Scaffold all targets without checking the org
+python3 -m scripts.cli scaffold --project-root my-agent -o MyOrg --skip-discover
+```
+
+Creates Flow XML (`.flow-meta.xml`) and Apex class (`.cls` + `.cls-meta.xml`) stubs with matching input/output variables from SKILL.md definitions. Review the stubs, fill in business logic, and deploy with `sf project deploy start`.
+
+### Run
+
+Execute a single action against a live org:
+
+```bash
+python3 -m scripts.cli run \
+  --skill my-agent/.claude/skills/check-order-status/SKILL.md \
+  -o MyOrg \
+  --input '{"order_number":"12345"}'
+
+# Dry run — show invocation plan without executing
+python3 -m scripts.cli run \
+  --skill my-agent/.claude/skills/check-order-status/SKILL.md \
+  -o MyOrg \
+  --input '{"order_number":"12345"}' \
+  --dry-run
+```
+
+Invokes the flow or apex action via REST API and returns the output values.
+
 ## CLI reference
 
 ```
@@ -361,6 +423,9 @@ agentforce-md convert   --project-root DIR --agent-name NAME [--agent-type TYPE]
 agentforce-md deploy    --api-name NAME -o ORG [--dry-run] [--activate] [--skip-retrieve]
 agentforce-md preview   --api-name NAME -o ORG --client-app APP
 agentforce-md init      --template TEMPLATE [--output-dir DIR]
+agentforce-md discover  --project-root DIR -o ORG
+agentforce-md scaffold  --project-root DIR -o ORG [--output-dir DIR] [--skip-discover]
+agentforce-md run       --skill SKILL_PATH -o ORG [--input JSON] [--dry-run]
 ```
 
 | Command | Description |
@@ -374,6 +439,11 @@ agentforce-md init      --template TEMPLATE [--output-dir DIR]
 | `deploy --skip-retrieve` | Don't retrieve generated metadata back to the DX project |
 | `preview` | Start an interactive agent preview session |
 | `init` | Scaffold a new project from a template |
+| `discover` | Check which SKILL.md targets (flows, apex classes) exist in the org |
+| `scaffold` | Generate stub metadata (Flow XML, Apex classes) for missing SKILL.md targets |
+| `scaffold --skip-discover` | Scaffold all targets without checking the org |
+| `run` | Execute a SKILL.md action against a live org via REST API |
+| `run --dry-run` | Show what would be called without executing |
 
 ## Project structure
 
@@ -386,7 +456,10 @@ agents/                       # User-created agents (checked into git)
 
 scripts/                      # The converter tool
 ├── cli.py                    # CLI entry point (argparse)
-├── convert.py                # Main orchestrator
+├── convert.py                # Main orchestrator (convert command)
+├── discover.py               # Org metadata discovery (discover command)
+├── scaffold.py               # Stub metadata generation (scaffold command)
+├── local_run.py              # Action execution (run command)
 ├── parser/
 │   ├── frontmatter.py        # YAML frontmatter extraction
 │   ├── markdown_utils.py     # Body → scope + instruction lines
@@ -401,12 +474,14 @@ scripts/                      # The converter tool
 ├── generator/
 │   ├── agent_script.py       # IR → .agent file text
 │   ├── bundle_meta.py        # Constant bundle-meta.xml
-│   └── writer.py             # Write files to disk
+│   ├── writer.py             # Write files to disk
+│   ├── flow_xml.py           # Flow XML stub generator
+│   └── apex_stub.py          # Apex @InvocableMethod stub generator
 └── deploy/
     └── sf_cli.py             # Wraps sf agent CLI commands
 
 templates/                    # Starter project templates
-tests/                        # pytest test suite (158 tests)
+tests/                        # pytest test suite
 
 force-app/main/default/       # Generated output (not checked in)
   aiAuthoringBundles/

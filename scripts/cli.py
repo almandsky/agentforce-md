@@ -119,6 +119,67 @@ def main(argv: list[str] | None = None) -> int:
     )
     setup_parser.add_argument("-o", "--target-org", required=True, help="Target Salesforce org")
 
+    # discover command — check org for SKILL.md targets
+    discover_parser = subparsers.add_parser(
+        "discover",
+        help="Check which SKILL.md targets exist in the org",
+    )
+    discover_parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path("."),
+        help="Root of the Claude Code project (default: current dir)",
+    )
+    discover_parser.add_argument("-o", "--target-org", required=True, help="Target Salesforce org")
+
+    # scaffold command — generate metadata stubs for missing targets
+    scaffold_parser = subparsers.add_parser(
+        "scaffold",
+        help="Generate metadata stubs (Flow XML, Apex classes) for missing SKILL.md targets",
+    )
+    scaffold_parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path("."),
+        help="Root of the Claude Code project (default: current dir)",
+    )
+    scaffold_parser.add_argument("-o", "--target-org", required=True, help="Target Salesforce org")
+    scaffold_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Output directory (default: force-app/main/default/)",
+    )
+    scaffold_parser.add_argument(
+        "--skip-discover",
+        action="store_true",
+        help="Scaffold all targets without checking the org",
+    )
+
+    # run command — execute a SKILL.md action against a live org
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Execute a SKILL.md action against a live org",
+    )
+    run_parser.add_argument(
+        "--skill",
+        type=Path,
+        required=True,
+        help="Path to the SKILL.md file or skill directory",
+    )
+    run_parser.add_argument("-o", "--target-org", required=True, help="Target Salesforce org")
+    run_parser.add_argument(
+        "--input",
+        type=str,
+        default=None,
+        help='Inputs as JSON string (e.g. \'{"order_id":"12345"}\')',
+    )
+    run_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be called without executing",
+    )
+
     args = parser.parse_args(argv)
 
     # Configure logging
@@ -131,6 +192,9 @@ def main(argv: list[str] | None = None) -> int:
         "preview": _cmd_preview,
         "init": _cmd_init,
         "setup": _cmd_setup,
+        "discover": _cmd_discover,
+        "scaffold": _cmd_scaffold,
+        "run": _cmd_run,
     }
     handler = handlers.get(args.command)
     if handler:
@@ -319,6 +383,121 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print("  1. Edit CLAUDE.md with your agent instructions")
     print("  2. Edit .claude/agents/*.md for your topics")
     print("  3. Run: agentforce-md convert --agent-name YourAgent")
+    return 0
+
+
+def _cmd_discover(args: argparse.Namespace) -> int:
+    """Check which SKILL.md targets exist in the org."""
+    from .discover import discover
+
+    print(f"Discovering targets in {args.target_org}...")
+    report = discover(
+        project_root=args.project_root.resolve(),
+        target_org=args.target_org,
+    )
+
+    if not report.targets:
+        print("No SKILL.md files with agentforce targets found.")
+        return 0
+
+    # Print results table
+    print(f"\n  {'Skill':<30} {'Target':<40} {'Status'}")
+    print(f"  {'─'*30} {'─'*40} {'─'*10}")
+    for t in report.targets:
+        status = "found" if t.found else "MISSING"
+        print(f"  {t.skill_name:<30} {t.target:<40} {status}")
+
+    found_count = len(report.found)
+    missing_count = len(report.missing)
+    print(f"\n  {found_count} found, {missing_count} missing")
+
+    if report.missing:
+        print("\n  To generate stubs for missing targets, run:")
+        print(f"    python3 -m scripts.cli scaffold --project-root {args.project_root} -o {args.target_org}")
+        return 1
+
+    print("\n  All targets found in the org.")
+    return 0
+
+
+def _cmd_scaffold(args: argparse.Namespace) -> int:
+    """Generate metadata stubs for missing SKILL.md targets."""
+    from .scaffold import scaffold_all, scaffold_from_skills
+
+    project_root = args.project_root.resolve()
+    output_dir = args.output_dir.resolve() if args.output_dir else None
+
+    if args.skip_discover:
+        print("Scaffolding all targets (skipping org check)...")
+        result = scaffold_all(project_root, output_dir)
+    else:
+        print(f"Discovering targets in {args.target_org}...")
+        result = scaffold_from_skills(project_root, args.target_org, output_dir)
+
+    if not result.files_created and not result.warnings:
+        print("No stubs to generate — all targets exist or no SKILL.md targets found.")
+        return 0
+
+    if result.files_created:
+        print(f"\nCreated {len(result.files_created)} file(s):")
+        for f in result.files_created:
+            print(f"  {f}")
+
+    for warning in result.warnings:
+        print(f"  Warning: {warning}", file=sys.stderr)
+
+    print("\nNext steps:")
+    print("  1. Review and fill in business logic in the generated stubs")
+    print("  2. Deploy: sf project deploy start --source-dir force-app/main/default -o <org>")
+    return 0
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    """Execute a SKILL.md action against a live org."""
+    from .local_run import run_action
+
+    # Resolve skill path
+    skill_path = args.skill.resolve()
+    if skill_path.is_dir():
+        skill_path = skill_path / "SKILL.md"
+    if not skill_path.exists():
+        print(f"SKILL.md not found at {skill_path}", file=sys.stderr)
+        return 1
+
+    # Parse inputs
+    inputs = {}
+    if args.input:
+        try:
+            inputs = json.loads(args.input)
+        except json.JSONDecodeError:
+            print("Error: --input must be valid JSON", file=sys.stderr)
+            return 1
+
+    if args.dry_run:
+        print("Dry run — showing invocation plan:")
+
+    result = run_action(
+        skill_path=skill_path,
+        target_org=args.target_org,
+        inputs=inputs,
+        dry_run=args.dry_run,
+    )
+
+    if not result.success:
+        print(f"Action failed: {result.error}", file=sys.stderr)
+        if result.raw_response:
+            print(f"Response: {result.raw_response}", file=sys.stderr)
+        return 1
+
+    if args.dry_run:
+        print(result.raw_response)
+    else:
+        print("Action succeeded.")
+        if result.outputs:
+            print("\nOutputs:")
+            for key, value in result.outputs.items():
+                print(f"  {key}: {value}")
+
     return 0
 
 
