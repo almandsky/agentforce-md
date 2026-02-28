@@ -1,7 +1,6 @@
 """Tests for IR default enrichment."""
 
 from scripts.ir.defaults import (
-    add_back_to_menu_transitions,
     add_connection_block,
     add_linked_variables,
     apply_defaults,
@@ -24,7 +23,7 @@ def _make_agent(agent_type=AgentType.SERVICE.value, topics=None, connection=None
     return AgentDefinition(
         config=ConfigBlock(
             developer_name="TestAgent",
-            agent_description="Test",
+            description="Test",
             agent_type=agent_type,
         ),
         topics=topics or [],
@@ -64,6 +63,12 @@ class TestAddLinkedVariables:
         assert by_name["EndUserId"].source == "@MessagingSession.MessagingEndUserId"
         assert by_name["RoutableId"].source == "@MessagingSession.Id"
         assert by_name["ContactId"].source == "@MessagingEndUser.ContactId"
+
+    def test_linked_vars_have_external_visibility(self):
+        agent = _make_agent()
+        add_linked_variables(agent)
+        for var in agent.variables:
+            assert var.visibility == "External"
 
 
 class TestGenerateStartAgent:
@@ -147,66 +152,6 @@ class TestAddConnectionBlock:
         assert agent.connection.escalation_message == "Custom message"
 
 
-class TestAddBackToMenuTransitions:
-    def test_adds_back_to_menu_to_topics(self):
-        agent = _make_agent(topics=[
-            Topic(name="orders", description="Order handling"),
-            Topic(name="faq", description="FAQ"),
-        ])
-        generate_start_agent(agent)
-        add_back_to_menu_transitions(agent)
-
-        for topic in agent.topics:
-            inv_names = [i.name for i in topic.reasoning.action_invocations]
-            assert "back_to_menu" in inv_names
-
-        # Verify the transition target
-        inv = agent.topics[0].reasoning.action_invocations[-1]
-        assert inv.action_ref == "@utils.transition to @topic.entry"
-
-    def test_skips_escalation_topics(self):
-        agent = _make_agent(topics=[
-            Topic(name="main", description="Main"),
-            Topic(name="escalation", description="Escalate to human"),
-        ])
-        generate_start_agent(agent)
-        add_back_to_menu_transitions(agent)
-
-        main_inv_names = [i.name for i in agent.topics[0].reasoning.action_invocations]
-        esc_inv_names = [i.name for i in agent.topics[1].reasoning.action_invocations]
-        assert "back_to_menu" in main_inv_names
-        assert "back_to_menu" not in esc_inv_names
-
-    def test_does_not_duplicate_existing(self):
-        topic = Topic(
-            name="orders",
-            description="Orders",
-            reasoning=ReasoningBlock(
-                action_invocations=[
-                    ActionInvocation(
-                        name="back_to_menu",
-                        action_ref="@utils.transition to @topic.entry",
-                    )
-                ]
-            ),
-        )
-        agent = _make_agent(topics=[topic])
-        generate_start_agent(agent)
-        add_back_to_menu_transitions(agent)
-
-        back_count = sum(
-            1 for i in topic.reasoning.action_invocations
-            if i.name == "back_to_menu"
-        )
-        assert back_count == 1
-
-    def test_no_topics_is_noop(self):
-        agent = _make_agent(topics=[])
-        generate_start_agent(agent)
-        add_back_to_menu_transitions(agent)
-        # Should not crash
-
-
 class TestApplyDefaults:
     def test_applies_all_defaults(self):
         agent = _make_agent(topics=[
@@ -218,8 +163,5 @@ class TestApplyDefaults:
         assert len(agent.variables) == 3
         # Start agent generated
         assert len(agent.start_agent.reasoning.action_invocations) == 1
-        # Back to menu added
-        main_inv_names = [i.name for i in agent.topics[0].reasoning.action_invocations]
-        assert "back_to_menu" in main_inv_names
         # No connection (no escalation)
         assert agent.connection is None

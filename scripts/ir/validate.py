@@ -27,8 +27,8 @@ def validate_agent(agent: AgentDefinition) -> list[str]:
         )
 
     # Agent description
-    if not agent.config.agent_description:
-        errors.append("agent_description is empty")
+    if not agent.config.description:
+        errors.append("description is empty")
 
     # Duplicate topic names
     topic_names = [t.name for t in agent.topics]

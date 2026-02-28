@@ -4,6 +4,7 @@ from scripts.ir.naming import (
     kebab_to_snake,
     kebab_to_title,
     sanitize_developer_name,
+    snake_to_label,
     tool_name_to_snake,
 )
 
@@ -18,6 +19,12 @@ def test_kebab_to_snake():
 def test_kebab_to_title():
     assert kebab_to_title("order-support") == "Order Support"
     assert kebab_to_title("general-faq") == "General Faq"
+
+
+def test_snake_to_label():
+    assert snake_to_label("order_support") == "Order Support"
+    assert snake_to_label("general_faq") == "General Faq"
+    assert snake_to_label("simple") == "Simple"
 
 
 def test_sanitize_developer_name():

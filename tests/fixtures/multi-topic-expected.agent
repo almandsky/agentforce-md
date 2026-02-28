@@ -1,100 +1,99 @@
-config:
-   developer_name: "AcmeAgent"
-   agent_description: "You are a customer support agent for Acme Corp."
-   agent_type: "AgentforceServiceAgent"
-
 system:
-   messages:
-      welcome: "Hello! How can I help you today?"
-      error: "Sorry, something went wrong. Please try again."
-   instructions: |
-      You are a customer support agent for Acme Corp.
-      Be helpful, professional, and concise.
-      Always verify the customer before making changes.
+    instructions: |
+        You are a customer support agent for Acme Corp.
+        Be helpful, professional, and concise.
+        Always verify the customer before making changes.
+    messages:
+        welcome: "Hello! How can I help you today?"
+        error: "Sorry, something went wrong. Please try again."
 
-variables:
-   EndUserId: linked string
-      source: @MessagingSession.MessagingEndUserId
-      description: "Messaging End User ID"
-   RoutableId: linked string
-      source: @MessagingSession.Id
-      description: "Messaging Session ID"
-   ContactId: linked string
-      source: @MessagingEndUser.ContactId
-      description: "Contact ID"
+config:
+    developer_name: "AcmeAgent"
+    description: "You are a customer support agent for Acme Corp."
+    agent_type: "AgentforceServiceAgent"
 
 language:
-   default_locale: "en_US"
-   additional_locales: ""
-   all_additional_locales: False
+    default_locale: "en_US"
+    additional_locales: ""
+    all_additional_locales: False
+
+variables:
+    EndUserId: linked string
+        source: @MessagingSession.MessagingEndUserId
+        description: "Messaging End User ID"
+        visibility: "External"
+    RoutableId: linked string
+        source: @MessagingSession.Id
+        description: "Messaging Session ID"
+        visibility: "External"
+    ContactId: linked string
+        source: @MessagingEndUser.ContactId
+        description: "Contact ID"
+        visibility: "External"
 
 start_agent entry:
-   description: "Entry point - route to appropriate topic"
-   reasoning:
-      instructions: ->
-         | Determine what the customer needs help with.
-         | Route them to the appropriate topic.
-      actions:
-         go_general_faq: @utils.transition to @topic.general_faq
-            description: "Answers general questions about Acme Corp"
-         go_order_support: @utils.transition to @topic.order_support
-            description: "Handles order inquiries and returns"
+    description: "Entry point - route to appropriate topic"
+    reasoning:
+        instructions: ->
+            | Determine what the customer needs help with.
+            | Route them to the appropriate topic.
+        actions:
+            go_general_faq: @utils.transition to @topic.general_faq
+                description: "Answers general questions about Acme Corp"
+            go_order_support: @utils.transition to @topic.order_support
+                description: "Handles order inquiries and returns"
 
 topic general_faq:
-   description: "Answers general questions about Acme Corp"
-   actions:
-      search_knowledge:
-         description: "Search the company knowledge base for answers to customer questions"
-         inputs:
-            query: string
-               description: "The search query"
-         outputs:
-            answer: string
-               description: "The answer found in the knowledge base"
-         target: "retriever://Acme_Knowledge_Base"
-   reasoning:
-      instructions: |
-         | Answer general questions about our company. If you don't know the answer, say so honestly.
-      actions:
-         search_knowledge: @actions.search_knowledge
+    description: "Answers general questions about Acme Corp"
+    actions:
+        search_knowledge:
             description: "Search the company knowledge base for answers to customer questions"
-         back_to_menu: @utils.transition to @topic.entry
-            description: "Return to main menu"
+            inputs:
+                query: string
+                    description: "The search query"
+            outputs:
+                answer: string
+                    description: "The answer found in the knowledge base"
+            target: "retriever://Acme_Knowledge_Base"
+    reasoning:
+        instructions: |
+            | Answer general questions about our company. If you don't know the answer, say so honestly.
+        actions:
+            search_knowledge: @actions.search_knowledge
+                description: "Search the company knowledge base for answers to customer questions"
 
 topic order_support:
-   description: "Handles order inquiries and returns"
-   actions:
-      check_order_status:
-         description: "Look up the current status of a customer order by order number"
-         inputs:
-            order_number: string
-               description: "The customer's order number"
-         outputs:
-            order_status: string
-               description: "Current status of the order"
-            order_date: string
-               description: "Date the order was placed"
-         target: "flow://Get_Order_Status"
-      process_return:
-         description: "Process a return request for a customer order"
-         inputs:
-            order_number: string
-               description: "The order number to return"
-            reason: string
-               description: "Reason for the return"
-         outputs:
-            return_id: string
-               description: "The generated return case ID"
-            return_status: string
-               description: "Status of the return request"
-         target: "flow://Process_Order_Return"
-   reasoning:
-      instructions: |
-         | Help customers with their orders. Always look up the order before processing a return. If the order is older than 30 days, escalate to a manager.
-      actions:
-         check_order_status: @actions.check_order_status
+    description: "Handles order inquiries and returns"
+    actions:
+        check_order_status:
             description: "Look up the current status of a customer order by order number"
-         process_return: @actions.process_return
+            inputs:
+                order_number: string
+                    description: "The customer's order number"
+            outputs:
+                order_status: string
+                    description: "Current status of the order"
+                order_date: string
+                    description: "Date the order was placed"
+            target: "flow://Get_Order_Status"
+        process_return:
             description: "Process a return request for a customer order"
-         back_to_menu: @utils.transition to @topic.entry
-            description: "Return to main menu"
+            inputs:
+                order_number: string
+                    description: "The order number to return"
+                reason: string
+                    description: "Reason for the return"
+            outputs:
+                return_id: string
+                    description: "The generated return case ID"
+                return_status: string
+                    description: "Status of the return request"
+            target: "flow://Process_Order_Return"
+    reasoning:
+        instructions: |
+            | Help customers with their orders. Always look up the order before processing a return. If the order is older than 30 days, escalate to a manager.
+        actions:
+            check_order_status: @actions.check_order_status
+                description: "Look up the current status of a customer order by order number"
+            process_return: @actions.process_return
+                description: "Process a return request for a customer order"

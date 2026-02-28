@@ -10,6 +10,7 @@ from scripts.ir.models import (
     ConfigBlock,
     ConnectionBlock,
     InstructionMode,
+    KnowledgeBlock,
     LanguageBlock,
     ReasoningBlock,
     StartAgent,
@@ -24,7 +25,7 @@ def _make_minimal_agent() -> AgentDefinition:
     return AgentDefinition(
         config=ConfigBlock(
             developer_name="TestAgent",
-            agent_description="A test agent",
+            description="A test agent",
             agent_type="AgentforceServiceAgent",
         ),
         system=SystemBlock(
@@ -64,11 +65,40 @@ def test_minimal_agent_generates():
     gen = AgentScriptGenerator(agent)
     output = gen.generate()
     assert 'developer_name: "TestAgent"' in output
-    assert 'agent_description: "A test agent"' in output
+    assert 'description: "A test agent"' in output
     assert 'welcome: "Hello!"' in output
     assert 'instructions: "Be helpful."' in output
     assert "start_agent entry:" in output
     assert "topic main:" in output
+
+
+def test_block_ordering():
+    """Verify the output follows: system -> config -> language -> variables -> knowledge -> start_agent -> topics."""
+    agent = _make_minimal_agent()
+    agent.variables = [
+        Variable(name="v1", var_type="string", modifier=VariableModifier.MUTABLE),
+    ]
+    agent.knowledge = KnowledgeBlock()
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    system_pos = output.index("system:")
+    config_pos = output.index("config:")
+    lang_pos = output.index("language:")
+    vars_pos = output.index("variables:")
+    knowledge_pos = output.index("knowledge:")
+    start_pos = output.index("start_agent")
+    topic_pos = output.index("topic main:")
+    assert system_pos < config_pos < lang_pos < vars_pos < knowledge_pos < start_pos < topic_pos
+
+
+def test_system_instructions_before_messages():
+    """Instructions should appear before messages in the system block."""
+    agent = _make_minimal_agent()
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    instr_pos = output.index("instructions:")
+    msg_pos = output.index("messages:")
+    assert instr_pos < msg_pos
 
 
 def test_config_block():
@@ -77,6 +107,24 @@ def test_config_block():
     gen = AgentScriptGenerator(agent)
     output = gen.generate()
     assert 'default_agent_user: "agent@test.com"' in output
+
+
+def test_config_agent_label():
+    agent = _make_minimal_agent()
+    agent.config.agent_label = "My Agent"
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert 'agent_label: "My Agent"' in output
+
+
+def test_config_description_field_name():
+    """Config should use 'description' not 'agent_description'."""
+    agent = _make_minimal_agent()
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    config_section = output.split("config:")[1].split("\n\n")[0]
+    assert "description:" in config_section
+    assert "agent_description:" not in config_section
 
 
 def test_variables_block():
@@ -94,6 +142,7 @@ def test_variables_block():
             modifier=VariableModifier.LINKED,
             source="@MessagingSession.MessagingEndUserId",
             description="Messaging End User ID",
+            visibility="External",
         ),
     ]
     gen = AgentScriptGenerator(agent)
@@ -101,6 +150,38 @@ def test_variables_block():
     assert "verified: mutable boolean = False" in output
     assert "EndUserId: linked string" in output
     assert "source: @MessagingSession.MessagingEndUserId" in output
+    assert 'visibility: "External"' in output
+
+
+def test_variable_label():
+    agent = _make_minimal_agent()
+    agent.variables = [
+        Variable(
+            name="CustomerName",
+            var_type="string",
+            modifier=VariableModifier.MUTABLE,
+            label="Customer Name",
+        ),
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert 'label: "Customer Name"' in output
+
+
+def test_knowledge_block():
+    agent = _make_minimal_agent()
+    agent.knowledge = KnowledgeBlock(citations_enabled=False)
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert "knowledge:" in output
+    assert "citations_enabled: False" in output
+
+
+def test_no_knowledge_block_by_default():
+    agent = _make_minimal_agent()
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert "knowledge:" not in output
 
 
 def test_connection_block():
@@ -111,6 +192,22 @@ def test_connection_block():
     assert "connection messaging:" in output
     assert 'outbound_route_type: "OmniChannelFlow"' in output
     assert "adaptive_response_allowed: False" in output
+
+
+def test_start_agent_label():
+    agent = _make_minimal_agent()
+    agent.start_agent.label = "Entry Point"
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert 'label: "Entry Point"' in output
+
+
+def test_topic_label():
+    agent = _make_minimal_agent()
+    agent.topics[0].label = "Main Topic"
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert 'label: "Main Topic"' in output
 
 
 def test_action_definitions():
@@ -132,6 +229,79 @@ def test_action_definitions():
     assert "status: string" in output
 
 
+def test_action_definition_new_fields():
+    agent = _make_minimal_agent()
+    agent.topics[0].action_definitions = [
+        ActionDefinition(
+            name="get_order",
+            description="Get order details",
+            target="flow://Get_Order_Details",
+            label="Get Order",
+            require_user_confirmation=True,
+            include_in_progress_indicator=True,
+            progress_indicator_message="Looking up order...",
+            source="Get_Order_Details",
+        )
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert 'label: "Get Order"' in output
+    assert "require_user_confirmation: True" in output
+    assert "include_in_progress_indicator: True" in output
+    assert 'progress_indicator_message: "Looking up order..."' in output
+    assert 'source: "Get_Order_Details"' in output
+
+
+def test_action_input_new_fields():
+    agent = _make_minimal_agent()
+    agent.topics[0].action_definitions = [
+        ActionDefinition(
+            name="search",
+            description="Search",
+            target="flow://Search",
+            inputs=[ActionInput(
+                name="query",
+                input_type="string",
+                label="Search Query",
+                is_user_input=True,
+                complex_data_type_name="QueryType",
+                default_value="@knowledge.citations_url",
+            )],
+        )
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert 'label: "Search Query"' in output
+    assert "is_user_input: True" in output
+    assert 'complex_data_type_name: "QueryType"' in output
+    assert "default_value: @knowledge.citations_url" in output
+
+
+def test_action_output_new_fields():
+    agent = _make_minimal_agent()
+    agent.topics[0].action_definitions = [
+        ActionDefinition(
+            name="search",
+            description="Search",
+            target="flow://Search",
+            outputs=[ActionOutput(
+                name="result",
+                output_type="string",
+                label="Search Result",
+                complex_data_type_name="ResultType",
+                filter_from_agent=True,
+                is_displayable=False,
+            )],
+        )
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert 'label: "Search Result"' in output
+    assert 'complex_data_type_name: "ResultType"' in output
+    assert "filter_from_agent: True" in output
+    assert "is_displayable: False" in output
+
+
 def test_action_definition_without_target_rendered_as_stub():
     """Actions without a target are rendered as commented-out stubs with TODO."""
     agent = _make_minimal_agent()
@@ -146,7 +316,7 @@ def test_action_definition_without_target_rendered_as_stub():
     assert '#       target: "flow://TODO_unknown_action"' in output
     # Should NOT appear as a real Level 1 definition
     topic_section = output.split("topic main:")[1]
-    assert "\n   actions:\n" not in topic_section.split("# TODO")[0]
+    assert "\n    actions:\n" not in topic_section.split("# TODO")[0]
 
 
 def test_action_invocations_with_bindings():
@@ -204,14 +374,42 @@ def test_multiline_system_instructions():
     assert "Line three." in output
 
 
-def test_three_space_indentation():
+def test_default_valued_fields_omitted():
+    """Fields at their default values should not appear in the output."""
+    agent = _make_minimal_agent()
+    agent.topics[0].action_definitions = [
+        ActionDefinition(
+            name="basic",
+            description="Basic action",
+            target="flow://Basic",
+            inputs=[ActionInput(name="x", input_type="string")],
+            outputs=[ActionOutput(name="y", output_type="string")],
+            # All other fields at defaults
+        )
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    # These default-valued fields should NOT appear
+    assert "require_user_confirmation:" not in output
+    assert "include_in_progress_indicator:" not in output
+    assert "progress_indicator_message:" not in output
+    assert "is_user_input:" not in output
+    assert "filter_from_agent:" not in output
+    assert "is_displayable:" not in output
+    assert "complex_data_type_name:" not in output
+    assert "default_value:" not in output
+    # label/source should not appear either
+    assert "source:" not in output.split("basic:")[1].split("target:")[0]
+
+
+def test_four_space_indentation():
     agent = _make_minimal_agent()
     gen = AgentScriptGenerator(agent)
     output = gen.generate()
-    # Check that we're using 3-space indentation
+    # Check that we're using 4-space indentation
     lines = output.splitlines()
-    indented = [l for l in lines if l.startswith(" ") and not l.startswith("    ")]
-    # All indented lines should use multiples of 3 spaces
+    indented = [l for l in lines if l.startswith(" ")]
+    # All indented lines should use multiples of 4 spaces
     for line in indented:
         spaces = len(line) - len(line.lstrip())
-        assert spaces % 3 == 0, f"Line has {spaces} spaces (not multiple of 3): {line!r}"
+        assert spaces % 4 == 0, f"Line has {spaces} spaces (not multiple of 4): {line!r}"

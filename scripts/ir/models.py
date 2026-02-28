@@ -31,6 +31,8 @@ class Variable:
     default: Optional[str] = None  # For mutable vars
     source: Optional[str] = None   # For linked vars (e.g. @session.sessionID)
     description: Optional[str] = None
+    visibility: Optional[str] = None  # "Internal" or "External"
+    label: Optional[str] = None
 
 
 @dataclass
@@ -39,6 +41,10 @@ class ActionInput:
     input_type: str  # string, number, boolean, etc.
     description: Optional[str] = None
     is_required: bool = True
+    label: Optional[str] = None
+    is_user_input: bool = False
+    complex_data_type_name: Optional[str] = None
+    default_value: Optional[str] = None
 
 
 @dataclass
@@ -46,6 +52,10 @@ class ActionOutput:
     name: str
     output_type: str
     description: Optional[str] = None
+    label: Optional[str] = None
+    complex_data_type_name: Optional[str] = None
+    filter_from_agent: bool = False
+    is_displayable: bool = True
 
 
 @dataclass
@@ -56,6 +66,11 @@ class ActionDefinition:
     target: Optional[str] = None  # e.g. flow://Get_Order, apex://MyClass
     inputs: list[ActionInput] = field(default_factory=list)
     outputs: list[ActionOutput] = field(default_factory=list)
+    label: Optional[str] = None
+    require_user_confirmation: bool = False
+    include_in_progress_indicator: bool = False
+    progress_indicator_message: Optional[str] = None
+    source: Optional[str] = None
 
 
 @dataclass
@@ -100,6 +115,7 @@ class Topic:
     description: str
     action_definitions: list[ActionDefinition] = field(default_factory=list)
     reasoning: ReasoningBlock = field(default_factory=ReasoningBlock)
+    label: Optional[str] = None
 
 
 @dataclass
@@ -107,14 +123,16 @@ class StartAgent:
     name: str = "entry"
     description: str = "Entry point - route to appropriate topic"
     reasoning: ReasoningBlock = field(default_factory=ReasoningBlock)
+    label: Optional[str] = None
 
 
 @dataclass
 class ConfigBlock:
     developer_name: str
-    agent_description: str
+    description: str  # renamed from agent_description
     agent_type: str = AgentType.SERVICE.value
     default_agent_user: str = ""
+    agent_label: Optional[str] = None
 
 
 @dataclass
@@ -141,6 +159,11 @@ class ConnectionBlock:
 
 
 @dataclass
+class KnowledgeBlock:
+    citations_enabled: bool = False
+
+
+@dataclass
 class AgentDefinition:
     """Root IR node representing the entire agent."""
     config: ConfigBlock
@@ -148,5 +171,6 @@ class AgentDefinition:
     variables: list[Variable] = field(default_factory=list)
     language: LanguageBlock = field(default_factory=LanguageBlock)
     connection: Optional[ConnectionBlock] = None
+    knowledge: Optional[KnowledgeBlock] = None
     start_agent: StartAgent = field(default_factory=StartAgent)
     topics: list[Topic] = field(default_factory=list)

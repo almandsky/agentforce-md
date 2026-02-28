@@ -1,82 +1,79 @@
-config:
-   developer_name: "SecureAgent"
-   agent_description: "You are a secure customer service agent."
-   agent_type: "AgentforceServiceAgent"
-
 system:
-   messages:
-      welcome: "Hello! How can I help you today?"
-      error: "Sorry, something went wrong. Please try again."
-   instructions: |
-      You are a secure customer service agent.
-      Always verify the customer's identity before providing account information.
-      Be professional and reassuring during the verification process.
+    instructions: |
+        You are a secure customer service agent.
+        Always verify the customer's identity before providing account information.
+        Be professional and reassuring during the verification process.
+    messages:
+        welcome: "Hello! How can I help you today?"
+        error: "Sorry, something went wrong. Please try again."
 
-variables:
-   EndUserId: linked string
-      source: @MessagingSession.MessagingEndUserId
-      description: "Messaging End User ID"
-   RoutableId: linked string
-      source: @MessagingSession.Id
-      description: "Messaging Session ID"
-   ContactId: linked string
-      source: @MessagingEndUser.ContactId
-      description: "Contact ID"
+config:
+    developer_name: "SecureAgent"
+    description: "You are a secure customer service agent."
+    agent_type: "AgentforceServiceAgent"
 
 language:
-   default_locale: "en_US"
-   additional_locales: ""
-   all_additional_locales: False
+    default_locale: "en_US"
+    additional_locales: ""
+    all_additional_locales: False
+
+variables:
+    EndUserId: linked string
+        source: @MessagingSession.MessagingEndUserId
+        description: "Messaging End User ID"
+        visibility: "External"
+    RoutableId: linked string
+        source: @MessagingSession.Id
+        description: "Messaging Session ID"
+        visibility: "External"
+    ContactId: linked string
+        source: @MessagingEndUser.ContactId
+        description: "Contact ID"
+        visibility: "External"
 
 start_agent entry:
-   description: "Entry point - route to appropriate topic"
-   reasoning:
-      instructions: ->
-         | Determine what the customer needs help with.
-         | Route them to the appropriate topic.
-      actions:
-         go_account_management: @utils.transition to @topic.account_management
-            description: "Account management for verified customers"
-         go_escalation: @utils.transition to @topic.escalation
-            description: "Escalate to human agent when needed"
-         go_identity_verification: @utils.transition to @topic.identity_verification
-            description: "Verify customer identity before granting access"
+    description: "Entry point - route to appropriate topic"
+    reasoning:
+        instructions: ->
+            | Determine what the customer needs help with.
+            | Route them to the appropriate topic.
+        actions:
+            go_account_management: @utils.transition to @topic.account_management
+                description: "Account management for verified customers"
+            go_escalation: @utils.transition to @topic.escalation
+                description: "Escalate to human agent when needed"
+            go_identity_verification: @utils.transition to @topic.identity_verification
+                description: "Verify customer identity before granting access"
 
 topic account_management:
-   description: "Account management for verified customers"
+    description: "Account management for verified customers"
 
-   # TODO: The following actions need agentforce: target in their SKILL.md
-   # actions:
-   #    get_account_info:
-   #       description: "GetAccountInfo"
-   #       target: "flow://TODO_get_account_info"
-   #    update_account:
-   #       description: "UpdateAccount"
-   #       target: "flow://TODO_update_account"
-   reasoning:
-      instructions: |
-         | Help verified customers manage their accounts. Provide account details and process updates. Only proceed if the customer has been verified.
-      actions:
-         back_to_menu: @utils.transition to @topic.entry
-            description: "Return to main menu"
+    # TODO: The following actions need agentforce: target in their SKILL.md
+    # actions:
+    #    get_account_info:
+    #       description: "GetAccountInfo"
+    #       target: "flow://TODO_get_account_info"
+    #    update_account:
+    #       description: "UpdateAccount"
+    #       target: "flow://TODO_update_account"
+    reasoning:
+        instructions: |
+            | Help verified customers manage their accounts. Provide account details and process updates. Only proceed if the customer has been verified.
 
 topic escalation:
-   description: "Escalate to human agent when needed"
-   reasoning:
-      instructions: |
-         | Transfer the customer to a human agent. Apologize for the inconvenience and let them know help is on the way.
+    description: "Escalate to human agent when needed"
+    reasoning:
+        instructions: |
+            | Transfer the customer to a human agent. Apologize for the inconvenience and let them know help is on the way.
 
 topic identity_verification:
-   description: "Verify customer identity before granting access"
+    description: "Verify customer identity before granting access"
 
-   # TODO: The following actions need agentforce: target in their SKILL.md
-   # actions:
-   #    verify_email:
-   #       description: "VerifyEmail"
-   #       target: "flow://TODO_verify_email"
-   reasoning:
-      instructions: |
-         | Verify the customer's identity. Ask them to confirm their email address. If verification fails 3 times, escalate to a human agent.
-      actions:
-         back_to_menu: @utils.transition to @topic.entry
-            description: "Return to main menu"
+    # TODO: The following actions need agentforce: target in their SKILL.md
+    # actions:
+    #    verify_email:
+    #       description: "VerifyEmail"
+    #       target: "flow://TODO_verify_email"
+    reasoning:
+        instructions: |
+            | Verify the customer's identity. Ask them to confirm their email address. If verification fails 3 times, escalate to a human agent.

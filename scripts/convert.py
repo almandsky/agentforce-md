@@ -125,7 +125,7 @@ def convert(
     agent = AgentDefinition(
         config=ConfigBlock(
             developer_name=dev_name,
-            agent_description=_derive_description(system_instructions, agent_name),
+            description=_derive_description(system_instructions, agent_name),
             agent_type=effective_agent_type,
             default_agent_user=default_agent_user,
         ),

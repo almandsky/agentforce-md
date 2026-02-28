@@ -15,7 +15,7 @@ from scripts.ir.validate import validate_agent
 def _make_agent(**overrides):
     config = ConfigBlock(
         developer_name=overrides.get("developer_name", "TestAgent"),
-        agent_description=overrides.get("agent_description", "A test agent"),
+        description=overrides.get("description", "A test agent"),
     )
     return AgentDefinition(
         config=config,
@@ -46,10 +46,10 @@ class TestValidateAgent:
         errors = validate_agent(agent)
         assert any("must start with a letter" in e for e in errors)
 
-    def test_empty_agent_description(self):
-        agent = _make_agent(agent_description="")
+    def test_empty_description(self):
+        agent = _make_agent(description="")
         errors = validate_agent(agent)
-        assert any("agent_description is empty" in e for e in errors)
+        assert any("description is empty" in e for e in errors)
 
     def test_duplicate_topic_names(self):
         agent = _make_agent(topics=[
@@ -83,7 +83,7 @@ class TestValidateAgent:
     def test_multiple_errors_reported(self):
         agent = _make_agent(
             developer_name="",
-            agent_description="",
+            description="",
             topics=[
                 Topic(name="a", description=""),
                 Topic(name="a", description="dup"),
