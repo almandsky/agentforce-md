@@ -132,16 +132,21 @@ def test_action_definitions():
     assert "status: string" in output
 
 
-def test_action_definition_without_target_omitted():
-    """Actions without a target are omitted from the output (would cause compile errors)."""
+def test_action_definition_without_target_rendered_as_stub():
+    """Actions without a target are rendered as commented-out stubs with TODO."""
     agent = _make_minimal_agent()
     agent.topics[0].action_definitions = [
         ActionDefinition(name="unknown_action", description="No target yet")
     ]
     gen = AgentScriptGenerator(agent)
     output = gen.generate()
-    assert "unknown_action" not in output
-    assert "actions:" not in output.split("topic main:")[1].split("reasoning:")[0]
+    # Should appear as a commented stub, not a real action definition
+    assert "# TODO: The following actions need agentforce: target" in output
+    assert "#    unknown_action:" in output
+    assert '#       target: "flow://TODO_unknown_action"' in output
+    # Should NOT appear as a real Level 1 definition
+    topic_section = output.split("topic main:")[1]
+    assert "\n   actions:\n" not in topic_section.split("# TODO")[0]
 
 
 def test_action_invocations_with_bindings():

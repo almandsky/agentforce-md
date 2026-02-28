@@ -45,7 +45,13 @@ topic general_faq:
    actions:
       search_knowledge:
          description: "SearchKnowledge"
-         # TODO: Set target (e.g. flow://FlowName, apex://ClassName)
+         inputs:
+            query: string
+               description: "The search query"
+         outputs:
+            answer: string
+               description: "The answer found in the knowledge base"
+         target: "retriever://Acme_Knowledge_Base"
    reasoning:
       instructions: |
          | Answer general questions about our company. If you don't know the answer, say so honestly.
@@ -58,10 +64,28 @@ topic order_support:
    actions:
       check_order_status:
          description: "CheckOrderStatus"
-         # TODO: Set target (e.g. flow://FlowName, apex://ClassName)
+         inputs:
+            order_number: string
+               description: "The customer's order number"
+         outputs:
+            order_status: string
+               description: "Current status of the order"
+            order_date: string
+               description: "Date the order was placed"
+         target: "flow://Get_Order_Status"
       process_return:
          description: "ProcessReturn"
-         # TODO: Set target (e.g. flow://FlowName, apex://ClassName)
+         inputs:
+            order_number: string
+               description: "The order number to return"
+            reason: string
+               description: "Reason for the return"
+         outputs:
+            return_id: string
+               description: "The generated return case ID"
+            return_status: string
+               description: "Status of the return request"
+         target: "flow://Process_Order_Return"
    reasoning:
       instructions: |
          | Help customers with their orders. Always look up the order before processing a return. If the order is older than 30 days, escalate to a manager.

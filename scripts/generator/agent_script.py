@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from ..ir.models import (
     ActionDefinition,
     ActionInvocation,
@@ -13,6 +15,8 @@ from ..ir.models import (
     Variable,
     VariableModifier,
 )
+
+logger = logging.getLogger(__name__)
 
 # Agent Script uses 3-space indentation
 INDENT = "   "
@@ -135,12 +139,28 @@ class AgentScriptGenerator:
             f'{INDENT}description: "{_escape(topic.description)}"',
         ]
 
-        # Level 1: Action definitions (only those with a target)
+        # Separate resolved (has target) from unresolved action definitions
         valid_defs = [ad for ad in topic.action_definitions if ad.target]
+        unresolved_defs = [ad for ad in topic.action_definitions if not ad.target]
+
         if valid_defs:
             lines.append(f"{INDENT}actions:")
             for action_def in valid_defs:
                 lines.extend(self._render_action_definition(action_def, indent_level=2))
+
+        # Render unresolved actions as commented-out stubs
+        if unresolved_defs:
+            lines.append("")
+            lines.append(f"{INDENT}# TODO: The following actions need agentforce: target in their SKILL.md")
+            lines.append(f"{INDENT}# actions:")
+            for ad in unresolved_defs:
+                lines.append(f"{INDENT}#    {ad.name}:")
+                lines.append(f'{INDENT}#       description: "{_escape(ad.description)}"')
+                lines.append(f'{INDENT}#       target: "flow://TODO_{ad.name}"')
+                logger.warning(
+                    "Action '%s' in topic '%s' rendered as stub (no target)",
+                    ad.name, topic.name,
+                )
 
         # Filter reasoning action invocations to only reference valid actions
         valid_names = {ad.name for ad in valid_defs}

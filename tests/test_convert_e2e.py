@@ -54,10 +54,10 @@ def test_multi_topic_template(tmp_path: Path):
     # System instructions from CLAUDE.md
     assert "customer support agent" in content
 
-    # Tools without targets are omitted from action definitions
-    # (they would cause compile errors), but topics should still exist
-    assert "topic order_support:" in content
-    assert "topic general_faq:" in content
+    # Actions should be resolved from SKILL.md files
+    assert 'target: "flow://Get_Order_Status"' in content
+    assert 'target: "flow://Process_Order_Return"' in content
+    assert 'target: "retriever://Acme_Knowledge_Base"' in content
 
     # Linked variables for service agent
     assert "EndUserId: linked string" in content

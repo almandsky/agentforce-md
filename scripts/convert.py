@@ -30,6 +30,7 @@ def convert(
     agent_type: str = AgentType.SERVICE.value,
     default_agent_user: str = "",
     output_dir: Path | None = None,
+    strict: bool = False,
 ) -> Path:
     """Full conversion pipeline: parse -> IR -> generate -> write.
 
@@ -39,9 +40,13 @@ def convert(
         agent_type: Agent type (AgentforceServiceAgent or AgentforceEmployeeAgent).
         default_agent_user: Default agent user email.
         output_dir: Where to write output. Defaults to project_root/force-app/main/default.
+        strict: If True, fail when any tools lack agentforce: target in their SKILL.md.
 
     Returns:
         Path to the generated bundle directory.
+
+    Raises:
+        ValueError: In strict mode, if any actions are missing targets.
     """
     if output_dir is None:
         output_dir = Path.cwd() / "force-app" / "main" / "default"
@@ -71,6 +76,7 @@ def convert(
             logger.info("Parsed skill '%s' -> action '%s'", sk_path.parent.name, action_def.name)
 
     # 4. Merge skill action definitions into topics
+    unresolved_actions: list[tuple[str, str]] = []  # (topic_name, action_name)
     for topic in topics:
         for i, ad in enumerate(topic.action_definitions):
             if ad.name in skill_actions:
@@ -84,6 +90,21 @@ def convert(
                     ad.outputs = skill_ad.outputs
                 if skill_ad.description and ad.description == ad.name:
                     ad.description = skill_ad.description
+            if not ad.target:
+                unresolved_actions.append((topic.name, ad.name))
+
+    if unresolved_actions:
+        for topic_name, action_name in unresolved_actions:
+            logger.warning(
+                "Action '%s' in topic '%s' has no target. "
+                "Create a SKILL.md with agentforce: target to resolve it.",
+                action_name, topic_name,
+            )
+        if strict:
+            names = ", ".join(f"{t}.{a}" for t, a in unresolved_actions)
+            raise ValueError(
+                f"Strict mode: {len(unresolved_actions)} action(s) missing targets: {names}"
+            )
 
     # 5. Build the IR
     agent = AgentDefinition(

@@ -52,6 +52,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Output directory (default: <project-root>/force-app/main/default)",
     )
+    convert_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail if any tools are missing agentforce: target in their SKILL.md",
+    )
 
     # deploy command — publish bundle + optional activate
     # `sf agent publish authoring-bundle` handles the full lifecycle:
@@ -149,6 +154,7 @@ def _cmd_convert(args: argparse.Namespace) -> int:
             agent_type=args.agent_type,
             default_agent_user=args.default_agent_user,
             output_dir=args.output_dir.resolve() if args.output_dir else None,
+            strict=args.strict,
         )
         print(f"Generated bundle: {bundle_dir}")
         print(f"  {bundle_dir.name}.agent")
