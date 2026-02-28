@@ -1,0 +1,6 @@
+agents/
+force-app/
+.venv/
+.env
+.cursor/
+.pytest_cache/
