@@ -6,24 +6,47 @@ Convert Claude Code markdown conventions into Agentforce Agent Script (`.agent`)
 
 Developers using Claude Code write agent behavior as plain markdown files — `CLAUDE.md` for global instructions, sub-agent `.md` files for topics, and `SKILL.md` files for actions. This tool converts those markdown files into Salesforce's Agent Script DSL format (a single `.agent` file), ready for deployment via `sf agent publish authoring-bundle`.
 
+The full round-trip is orchestrated by a Claude Code skill (`/agentforce-convert`) that generates markdown from a user prompt, converts it to Agent Script, and deploys to a Salesforce org:
+
 ```
-CLAUDE.md + .claude/agents/*.md + .claude/skills/*/SKILL.md
-                        │
-                        ▼
-              ┌─────────────────┐
-              │  agentforce-md  │
-              │  convert        │
-              └────────┬────────┘
-                       │
-                       ▼
-       force-app/main/default/aiAuthoringBundles/
-         AgentName/
-           AgentName.agent            ← Agent Script DSL
-           AgentName.bundle-meta.xml  ← Required metadata
-                       │
-                       ▼
-              sf agent publish authoring-bundle
+  User
+   │  ① Prompt
+   ▼
+  ┌─────────────────────────────────┐
+  │          Claude Code CLI        │
+  │                                 │          Markdown Files
+  │  ┌───────────────────────────┐  │     ┌──────────────────────────┐
+  │  │  Agent Markdown           │──┼─②─►│  CLAUDE.md               │
+  │  │  Generation SKILL         │  │     │  .claude/agents/*.md     │
+  │  └───────────────────────────┘  │     └────────────┬─────────────┘
+  │              │                  │                   │
+  │              ▼                  │        ③          │
+  │  ┌───────────────────────────┐  │                   │
+  │  │  Markdown to Agent        │◄─┼──────────────────┘
+  │  │  Script Conversion        │  │          Agent Script
+  │  │                           │──┼─④─►┌──────────────────────────┐
+  │  └───────────────────────────┘  │     │  aiAuthoringBundles/     │
+  │              │                  │     └────────────┬─────────────┘
+  │              ▼                  │        ⑤          │
+  │  ┌───────────────────────────┐  │                   │
+  │  │  Deploy to                │◄─┼──────────────────┘
+  │  │  Salesforce Org           │  │          Salesforce Org
+  │  │                           │──┼─⑥─►┌──────────────────────────┐
+  │  └───────────────────────────┘  │     │  Metadata                │
+  │                                 │     └──────────────────────────┘
+  └─────────────────────────────────┘
 ```
+
+| Step | What happens |
+|------|-------------|
+| ① | User describes the agent they want to build |
+| ② | Claude Code SKILL generates markdown files (CLAUDE.md + sub-agent .md files) |
+| ③ | Markdown files are fed into the Python converter |
+| ④ | Converter produces an Agent Script `.agent` file in `aiAuthoringBundles/` |
+| ⑤ | The `.agent` file is passed to the deployment step |
+| ⑥ | `sf agent publish authoring-bundle` compiles and deploys metadata to the org |
+
+Each step can also be run independently via the CLI (see [CLI reference](#cli-reference)).
 
 ## How it works
 
@@ -136,7 +159,7 @@ python3 -m scripts.cli convert \
   --default-agent-user "acmeagent@00dwt00000bvllc880056991.ext"
 ```
 
-Output lands in `my-agent/force-app/main/default/aiAuthoringBundles/AcmeAgent/`.
+Output lands in `force-app/main/default/aiAuthoringBundles/AcmeAgent/` (relative to the current working directory). Override with `--output-dir`.
 
 The `--default-agent-user` flag is required for service agents. If omitted, a warning is printed with instructions to run `setup` to find available ASA users.
 
@@ -317,7 +340,13 @@ agentforce-md init      --template TEMPLATE [--output-dir DIR]
 ## Project structure
 
 ```
-scripts/
+agents/                       # User-created agents (checked into git)
+  <agent-name>/               #   Each agent gets its own directory
+    CLAUDE.md                 #     Agent persona and instructions
+    .claude/agents/*.md       #     One file per topic
+    .claude/skills/*/SKILL.md #     Optional: action targets
+
+scripts/                      # The converter tool
 ├── cli.py                    # CLI entry point (argparse)
 ├── convert.py                # Main orchestrator
 ├── parser/
@@ -338,7 +367,13 @@ scripts/
     └── sf_cli.py             # Wraps sf agent CLI commands
 
 templates/                    # Starter project templates
-tests/                        # pytest test suite
+tests/                        # pytest test suite (118 tests)
+
+force-app/main/default/       # Generated output (not checked in)
+  aiAuthoringBundles/
+    <AgentName>/
+      <AgentName>.agent
+      <AgentName>.bundle-meta.xml
 ```
 
 ## Running tests
