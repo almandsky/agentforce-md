@@ -22,6 +22,15 @@ source .venv/bin/activate
 # Convert a template
 python -m scripts.cli convert --project-root templates/multi-topic --agent-name AcmeAgent
 
+# Discover which SKILL.md targets exist in an org
+python -m scripts.cli discover --project-root templates/multi-topic -o MyOrg
+
+# Generate metadata stubs for missing targets
+python -m scripts.cli scaffold --project-root templates/multi-topic -o MyOrg
+
+# Execute a single action against a live org
+python -m scripts.cli run --skill templates/multi-topic/.claude/skills/check-order-status/SKILL.md -o MyOrg --input '{"order_number":"12345"}' --dry-run
+
 # Run tests
 python -m pytest tests/ -v
 ```

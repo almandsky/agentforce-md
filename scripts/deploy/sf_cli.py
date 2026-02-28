@@ -198,6 +198,82 @@ class SfAgentCli:
             cmd.extend(["--client-app", client_app])
         return self._run(cmd)
 
+    def list_metadata(
+        self,
+        metadata_type: str,
+        target_org: str,
+    ) -> CliResult:
+        """List metadata components of a given type (Flow, ApexClass, etc.).
+
+        Args:
+            metadata_type: Salesforce metadata type name (e.g. Flow, ApexClass).
+            target_org: Target org username or alias.
+        """
+        return self._run([
+            self.sf_binary, "org", "list", "metadata",
+            "-m", metadata_type,
+            "-o", target_org,
+            "--json",
+        ])
+
+    def query_soql(self, query: str, target_org: str) -> CliResult:
+        """Run a SOQL query against the org.
+
+        Args:
+            query: SOQL query string.
+            target_org: Target org username or alias.
+        """
+        return self._run([
+            self.sf_binary, "data", "query",
+            "-q", query,
+            "-o", target_org,
+            "--json",
+        ])
+
+    def run_flow(
+        self,
+        flow_api_name: str,
+        inputs: dict,
+        target_org: str,
+    ) -> CliResult:
+        """Invoke a flow via REST API.
+
+        Args:
+            flow_api_name: The flow's API name.
+            inputs: Dictionary of input variable names to values.
+            target_org: Target org username or alias.
+        """
+        body = json.dumps({"inputs": [inputs]})
+        return self._run([
+            self.sf_binary, "api", "request", "rest",
+            f"/services/data/v63.0/actions/custom/flow/{flow_api_name}",
+            "--method", "POST",
+            "--body", body,
+            "-o", target_org,
+        ])
+
+    def run_apex_action(
+        self,
+        class_name: str,
+        inputs: dict,
+        target_org: str,
+    ) -> CliResult:
+        """Invoke an @InvocableMethod via REST API.
+
+        Args:
+            class_name: The Apex class name containing the @InvocableMethod.
+            inputs: Dictionary of input variable names to values.
+            target_org: Target org username or alias.
+        """
+        body = json.dumps({"inputs": [inputs]})
+        return self._run([
+            self.sf_binary, "api", "request", "rest",
+            f"/services/data/v63.0/actions/custom/apex/{class_name}",
+            "--method", "POST",
+            "--body", body,
+            "-o", target_org,
+        ])
+
     def _run(self, cmd: list[str]) -> CliResult:
         """Execute a CLI command and return the result."""
         try:
