@@ -160,8 +160,19 @@ def _cmd_convert(args: argparse.Namespace) -> int:
         print(f"  {bundle_dir.name}.agent")
         print(f"  {bundle_dir.name}.bundle-meta.xml")
         return 0
+    except ValueError as e:
+        logging.error("Validation error: %s", e)
+        return 1
+    except FileNotFoundError as e:
+        logging.error("File not found: %s", e)
+        return 1
+    except OSError as e:
+        logging.error("File system error: %s", e)
+        return 1
     except Exception as e:
-        logging.error("Conversion failed: %s", e)
+        logging.error("Unexpected error: %s", e)
+        if args.verbose:
+            logging.debug("Traceback:", exc_info=True)
         return 1
 
 

@@ -285,6 +285,41 @@ class TestConvertWarning:
         assert "--default-agent-user not set" not in captured.err
 
 
+class TestConvertErrorHandling:
+    def test_strict_mode_returns_error_code(self, tmp_path: Path):
+        """Strict mode with unresolved actions returns exit code 1."""
+        rc = main([
+            "convert",
+            "--project-root", str(TEMPLATES_DIR / "verification-gate"),
+            "--agent-name", "StrictAgent",
+            "--output-dir", str(tmp_path),
+            "--strict",
+        ])
+        assert rc == 1
+
+    def test_validation_error_returns_error_code(self, tmp_path: Path):
+        """Duplicate topic names cause a validation error."""
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "CLAUDE.md").write_text("Test agent.")
+        agents_dir = project / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "orders.md").write_text(
+            "---\nname: orders\ndescription: Orders\n---\nHandle orders."
+        )
+        (agents_dir / "orders-v2.md").write_text(
+            "---\nname: orders\ndescription: Orders v2\n---\nHandle orders v2."
+        )
+
+        rc = main([
+            "convert",
+            "--project-root", str(project),
+            "--agent-name", "DupAgent",
+            "--output-dir", str(tmp_path / "out"),
+        ])
+        assert rc == 1
+
+
 class TestVerboseFlag:
     def test_verbose_does_not_crash(self, tmp_path: Path):
         rc = main([

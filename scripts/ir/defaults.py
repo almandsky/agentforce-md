@@ -105,8 +105,43 @@ def add_connection_block(agent: AgentDefinition) -> None:
         agent.connection = ConnectionBlock()
 
 
+def add_back_to_menu_transitions(agent: AgentDefinition) -> None:
+    """Add a back_to_menu transition to each topic that doesn't already have one.
+
+    This allows users to return to the start_agent entry point from any topic,
+    matching standard Agentforce patterns (Coral Cloud, sf-skills templates).
+    """
+    if not agent.topics:
+        return
+
+    entry_name = agent.start_agent.name
+
+    for topic in agent.topics:
+        # Skip if this topic already has a transition back
+        existing_refs = {
+            inv.action_ref for inv in topic.reasoning.action_invocations
+        }
+        back_ref = f"@utils.transition to @topic.{entry_name}"
+        if back_ref in existing_refs:
+            continue
+
+        # Skip escalation topics (they hand off, not return)
+        if "escalat" in topic.name.lower():
+            continue
+
+        topic.reasoning.action_invocations.append(
+            ActionInvocation(
+                name="back_to_menu",
+                action_ref=back_ref,
+                description="Return to main menu",
+                transition_target=entry_name,
+            )
+        )
+
+
 def apply_defaults(agent: AgentDefinition) -> None:
     """Apply all default enrichments to the agent definition."""
     add_linked_variables(agent)
     generate_start_agent(agent)
+    add_back_to_menu_transitions(agent)
     add_connection_block(agent)

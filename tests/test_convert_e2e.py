@@ -92,6 +92,24 @@ def test_multi_topic_golden_file(tmp_path: Path):
     )
 
 
+def test_hello_world_golden_file(tmp_path: Path):
+    """Compare hello-world output against golden file."""
+    golden = FIXTURES_DIR / "hello-world-expected.agent"
+    assert golden.exists(), "Golden file missing: tests/fixtures/hello-world-expected.agent"
+
+    bundle_dir = convert(
+        project_root=TEMPLATES_DIR / "hello-world",
+        agent_name="HelloAgent",
+        output_dir=tmp_path,
+    )
+    content = (bundle_dir / "HelloAgent.agent").read_text()
+    expected = golden.read_text()
+    assert content == expected, (
+        "Generated output differs from golden file. "
+        "If intentional, delete tests/fixtures/hello-world-expected.agent and re-run."
+    )
+
+
 def test_verification_gate_template(tmp_path: Path):
     """Convert verification-gate template and verify structure."""
     bundle_dir = convert(
@@ -108,6 +126,24 @@ def test_verification_gate_template(tmp_path: Path):
 
     # Should have linked variables
     assert "EndUserId: linked string" in content
+
+
+def test_verification_gate_golden_file(tmp_path: Path):
+    """Compare verification-gate output against golden file."""
+    golden = FIXTURES_DIR / "verification-gate-expected.agent"
+    assert golden.exists(), "Golden file missing: tests/fixtures/verification-gate-expected.agent"
+
+    bundle_dir = convert(
+        project_root=TEMPLATES_DIR / "verification-gate",
+        agent_name="SecureAgent",
+        output_dir=tmp_path,
+    )
+    content = (bundle_dir / "SecureAgent.agent").read_text()
+    expected = golden.read_text()
+    assert content == expected, (
+        "Generated output differs from golden file. "
+        "If intentional, delete tests/fixtures/verification-gate-expected.agent and re-run."
+    )
 
 
 def test_output_directory_structure(tmp_path: Path):

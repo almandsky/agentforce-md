@@ -44,7 +44,7 @@ topic general_faq:
    description: "Answers general questions about Acme Corp"
    actions:
       search_knowledge:
-         description: "SearchKnowledge"
+         description: "Search the company knowledge base for answers to customer questions"
          inputs:
             query: string
                description: "The search query"
@@ -57,13 +57,15 @@ topic general_faq:
          | Answer general questions about our company. If you don't know the answer, say so honestly.
       actions:
          search_knowledge: @actions.search_knowledge
-            description: "SearchKnowledge"
+            description: "Search the company knowledge base for answers to customer questions"
+         back_to_menu: @utils.transition to @topic.entry
+            description: "Return to main menu"
 
 topic order_support:
    description: "Handles order inquiries and returns"
    actions:
       check_order_status:
-         description: "CheckOrderStatus"
+         description: "Look up the current status of a customer order by order number"
          inputs:
             order_number: string
                description: "The customer's order number"
@@ -74,7 +76,7 @@ topic order_support:
                description: "Date the order was placed"
          target: "flow://Get_Order_Status"
       process_return:
-         description: "ProcessReturn"
+         description: "Process a return request for a customer order"
          inputs:
             order_number: string
                description: "The order number to return"
@@ -91,6 +93,8 @@ topic order_support:
          | Help customers with their orders. Always look up the order before processing a return. If the order is older than 30 days, escalate to a manager.
       actions:
          check_order_status: @actions.check_order_status
-            description: "CheckOrderStatus"
+            description: "Look up the current status of a customer order by order number"
          process_return: @actions.process_return
-            description: "ProcessReturn"
+            description: "Process a return request for a customer order"
+         back_to_menu: @utils.transition to @topic.entry
+            description: "Return to main menu"
