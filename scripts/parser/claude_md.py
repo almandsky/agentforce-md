@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
+from ..ir.models import Variable, VariableModifier
 from .frontmatter import parse_frontmatter
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -18,6 +22,8 @@ class ParsedClaudeMd:
     error_message: Optional[str] = None
     agent_type: Optional[str] = None
     company: Optional[str] = None
+    variables: list[Variable] = field(default_factory=list)
+    knowledge_citations_enabled: Optional[bool] = None
 
 
 def parse_claude_md(path: Path) -> str:
@@ -77,6 +83,10 @@ def parse_claude_md_structured(path: Path) -> ParsedClaudeMd:
         result.error_message = frontmatter.get("error")
         result.agent_type = frontmatter.get("agent_type")
         result.company = frontmatter.get("company")
+        result.variables = _parse_variables(frontmatter.get("variables", {}))
+        knowledge = frontmatter.get("knowledge", {})
+        if isinstance(knowledge, dict) and "citations_enabled" in knowledge:
+            result.knowledge_citations_enabled = bool(knowledge["citations_enabled"])
     else:
         body = text
 
@@ -171,5 +181,55 @@ def _clean_body(body: str) -> str:
     # Collapse multiple blank lines into one
     while "\n\n\n" in result:
         result = result.replace("\n\n\n", "\n\n")
+
+    return result
+
+
+def _parse_variables(vars_dict: Any) -> list[Variable]:
+    """Parse variables from CLAUDE.md frontmatter.
+
+    Expected format::
+
+        variables:
+          isVerified:
+            type: boolean
+            modifier: mutable
+            default: "False"
+            description: "Whether the customer is verified"
+            label: "Customer Verified"
+            visibility: Internal
+          EndUserId:
+            type: string
+            modifier: linked
+            source: "@MessagingSession.MessagingEndUserId"
+            description: "Messaging End User ID"
+            visibility: External
+    """
+    if not vars_dict or not isinstance(vars_dict, dict):
+        return []
+
+    result = []
+    for var_name, spec in vars_dict.items():
+        if not isinstance(spec, dict):
+            logger.warning("Variable '%s' has invalid spec (expected dict), skipping", var_name)
+            continue
+
+        modifier_str = spec.get("modifier", "mutable")
+        if modifier_str == "linked":
+            modifier = VariableModifier.LINKED
+        else:
+            modifier = VariableModifier.MUTABLE
+
+        var = Variable(
+            name=var_name,
+            var_type=spec.get("type", "string"),
+            modifier=modifier,
+            default=spec.get("default"),
+            source=spec.get("source"),
+            description=spec.get("description"),
+            visibility=spec.get("visibility"),
+            label=spec.get("label"),
+        )
+        result.append(var)
 
     return result

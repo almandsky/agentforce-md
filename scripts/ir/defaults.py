@@ -57,7 +57,12 @@ def _has_escalation(agent: AgentDefinition) -> bool:
 
 
 def add_linked_variables(agent: AgentDefinition) -> None:
-    """Add standard linked variables for service agents if not already present."""
+    """Add standard linked variables for service agents if not already present.
+
+    User-defined variables (from CLAUDE.md frontmatter) take precedence over
+    the auto-generated defaults.  If the user already defined EndUserId with
+    a custom source, we keep the user's version.
+    """
     if agent.config.agent_type != AgentType.SERVICE.value:
         return
 
@@ -86,6 +91,7 @@ def generate_start_agent(agent: AgentDefinition) -> None:
                 action_ref=f"@utils.transition to @topic.{topic.name}",
                 description=topic.description,
                 transition_target=topic.name,
+                available_when=topic.available_when,
             )
         )
 

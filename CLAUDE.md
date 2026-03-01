@@ -62,4 +62,7 @@ python3 tools/install.py --force
 - Booleans are `True`/`False` (capitalized)
 - Sub-agent names are kebab-case in filenames, snake_case in .agent output
 - Tools without SKILL.md targets generate action stubs with `# TODO` comments
-- Service agents automatically get linked variables (EndUserId, RoutableId, ContactId)
+- Variables are defined in CLAUDE.md frontmatter (`variables:` section) — both `mutable` (state) and `linked` (context)
+- Service agents auto-add EndUserId, RoutableId, ContactId as linked vars (unless user overrides them)
+- Action-variable bindings (`with`/`set`/`after`) go in sub-agent `.md` frontmatter under `agentforce: bindings:`
+- `available_when` guards on sub-agents control routing from start_agent

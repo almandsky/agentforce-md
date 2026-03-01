@@ -10,6 +10,7 @@ from ..ir.models import (
     ActionDefinition,
     ActionInvocation,
     InstructionMode,
+    PostActionBranch,
     ReasoningBlock,
     Topic,
 )
@@ -49,6 +50,11 @@ def parse_subagent(path: Path) -> Topic:
                 field_name, name,
             )
 
+    # Parse agentforce-specific overrides
+    ag = frontmatter.get("agentforce", {}) or {}
+    topic_label = ag.get("label")
+    topic_available_when = ag.get("available_when")
+
     # Parse tools
     tools = _parse_tools(frontmatter.get("tools", ""))
 
@@ -58,6 +64,9 @@ def parse_subagent(path: Path) -> Topic:
     # Use scope as description if frontmatter description is empty
     if not description and scope:
         description = scope
+
+    # Parse action-variable bindings from agentforce section
+    bindings = ag.get("bindings", {}) or {}
 
     # Build action definitions (stubs) and invocations for non-builtin tools
     action_defs = []
@@ -73,11 +82,42 @@ def parse_subagent(path: Path) -> Topic:
                 target=None,  # Will be filled by SKILL.md if available
             )
         )
+
+        # Look up bindings by the original tool name (PascalCase)
+        tool_bindings = bindings.get(tool, {}) or {}
+        with_bindings = {}
+        set_bindings = {}
+        post_branches: list[PostActionBranch] = []
+        if isinstance(tool_bindings, dict):
+            raw_with = tool_bindings.get("with", {}) or {}
+            if isinstance(raw_with, dict):
+                with_bindings = {k: str(v) for k, v in raw_with.items()}
+            raw_set = tool_bindings.get("set", {}) or {}
+            if isinstance(raw_set, dict):
+                set_bindings = {k: str(v) for k, v in raw_set.items()}
+            # Parse post-action branches (if/transition_to)
+            after = tool_bindings.get("after")
+            if isinstance(after, dict) and "if" in after:
+                post_branches.append(PostActionBranch(
+                    condition=str(after["if"]),
+                    transition_to=kebab_to_snake(str(after["transition_to"])),
+                ))
+            elif isinstance(after, list):
+                for branch in after:
+                    if isinstance(branch, dict) and "if" in branch:
+                        post_branches.append(PostActionBranch(
+                            condition=str(branch["if"]),
+                            transition_to=kebab_to_snake(str(branch["transition_to"])),
+                        ))
+
         action_invocations.append(
             ActionInvocation(
                 name=snake_name,
                 action_ref=f"@actions.{snake_name}",
                 description=f"{tool}",
+                with_bindings=with_bindings,
+                set_bindings=set_bindings,
+                post_branches=post_branches,
             )
         )
 
@@ -101,6 +141,8 @@ def parse_subagent(path: Path) -> Topic:
             instruction_lines=all_lines,
             action_invocations=action_invocations,
         ),
+        label=topic_label,
+        available_when=topic_available_when,
     )
 
 

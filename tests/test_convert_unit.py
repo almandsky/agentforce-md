@@ -145,3 +145,155 @@ class TestSkillMerging:
         expected = tmp_path / "force-app" / "main" / "default" / "aiAuthoringBundles" / "DefaultDir"
         assert bundle_dir == expected
         assert bundle_dir.is_dir()
+
+
+class TestUserDefinedVariables:
+    def test_mutable_variables_from_frontmatter(self, tmp_path: Path):
+        """Mutable variables from CLAUDE.md frontmatter appear in output."""
+        (tmp_path / ".claude" / "agents").mkdir(parents=True)
+        (tmp_path / "CLAUDE.md").write_text("""---
+variables:
+  isVerified:
+    type: boolean
+    modifier: mutable
+    default: "False"
+    description: "Whether customer is verified"
+    label: "Verified"
+    visibility: Internal
+---
+Service agent instructions.
+""")
+        (tmp_path / ".claude" / "agents" / "faq.md").write_text(
+            "---\nname: faq\ndescription: FAQ\n---\nAnswer questions."
+        )
+
+        bundle_dir = convert(
+            project_root=tmp_path,
+            agent_name="VarTest",
+            output_dir=tmp_path / "out",
+        )
+        content = (bundle_dir / "VarTest.agent").read_text()
+        assert "isVerified: mutable boolean = False" in content
+        assert 'description: "Whether customer is verified"' in content
+        assert 'label: "Verified"' in content
+        assert 'visibility: "Internal"' in content
+
+    def test_user_linked_var_overrides_default(self, tmp_path: Path):
+        """User-defined EndUserId replaces the auto-generated one."""
+        (tmp_path / ".claude" / "agents").mkdir(parents=True)
+        (tmp_path / "CLAUDE.md").write_text("""---
+agent_type: AgentforceServiceAgent
+variables:
+  EndUserId:
+    type: string
+    modifier: linked
+    source: "@session.custom_end_user_id"
+    description: "Custom end user"
+    visibility: Internal
+---
+Service agent.
+""")
+        (tmp_path / ".claude" / "agents" / "faq.md").write_text(
+            "---\nname: faq\ndescription: FAQ\n---\nAnswer."
+        )
+
+        bundle_dir = convert(
+            project_root=tmp_path,
+            agent_name="OverrideTest",
+            output_dir=tmp_path / "out",
+        )
+        content = (bundle_dir / "OverrideTest.agent").read_text()
+        # User's custom source should appear, not the default
+        assert "source: @session.custom_end_user_id" in content
+        assert "@MessagingSession.MessagingEndUserId" not in content
+        # Other default linked vars should still be added
+        assert "RoutableId: linked string" in content
+        assert "ContactId: linked string" in content
+
+    def test_knowledge_block_from_frontmatter(self, tmp_path: Path):
+        """Knowledge block from CLAUDE.md frontmatter appears in output."""
+        (tmp_path / "CLAUDE.md").write_text("""---
+knowledge:
+  citations_enabled: true
+---
+Agent.
+""")
+
+        bundle_dir = convert(
+            project_root=tmp_path,
+            agent_name="KnowledgeTest",
+            output_dir=tmp_path / "out",
+        )
+        content = (bundle_dir / "KnowledgeTest.agent").read_text()
+        assert "knowledge:" in content
+        assert "citations_enabled: True" in content
+
+
+class TestActionBindings:
+    def test_with_and_set_bindings_in_output(self, tmp_path: Path):
+        """Action bindings from sub-agent agentforce section render in output."""
+        (tmp_path / ".claude" / "agents").mkdir(parents=True)
+        (tmp_path / ".claude" / "skills" / "identify-record").mkdir(parents=True)
+        (tmp_path / "CLAUDE.md").write_text("Agent.")
+
+        (tmp_path / ".claude" / "agents" / "verify.md").write_text("""---
+name: verify
+description: Verify identity
+tools: IdentifyRecord
+agentforce:
+  label: "Customer Verification"
+  bindings:
+    IdentifyRecord:
+      with:
+        customerId: "@variables.VerifiedCustomerId"
+      set:
+        "@variables.isVerified": "@outputs.isVerified"
+      after:
+        if: "@variables.isVerified"
+        transition_to: "account-management"
+---
+Verify the customer.
+""")
+
+        (tmp_path / ".claude" / "skills" / "identify-record" / "SKILL.md").write_text(
+            "---\nname: identify-record\ndescription: Identify record\n"
+            "agentforce:\n  target: \"flow://Identify_Record\"\n"
+            "  inputs:\n    customerId:\n      type: string\n"
+            "  outputs:\n    isVerified:\n      type: boolean\n---\n"
+        )
+
+        bundle_dir = convert(
+            project_root=tmp_path,
+            agent_name="BindTest",
+            output_dir=tmp_path / "out",
+        )
+        content = (bundle_dir / "BindTest.agent").read_text()
+        assert 'label: "Customer Verification"' in content
+        assert "with customerId = @variables.VerifiedCustomerId" in content
+        assert "set @variables.isVerified = @outputs.isVerified" in content
+        assert "if @variables.isVerified:" in content
+        assert "transition to @topic.account_management" in content
+
+    def test_available_when_on_start_agent_transition(self, tmp_path: Path):
+        """Topic available_when propagates to start_agent transition."""
+        (tmp_path / ".claude" / "agents").mkdir(parents=True)
+        (tmp_path / "CLAUDE.md").write_text("Agent.")
+
+        (tmp_path / ".claude" / "agents" / "account.md").write_text("""---
+name: account
+description: Account management
+agentforce:
+  available_when: "@variables.isVerified==True"
+---
+Manage accounts.
+""")
+
+        bundle_dir = convert(
+            project_root=tmp_path,
+            agent_name="GuardTest",
+            output_dir=tmp_path / "out",
+        )
+        content = (bundle_dir / "GuardTest.agent").read_text()
+        # The start_agent transition should have the guard
+        start_section = content.split("start_agent entry:")[1].split("topic ")[0]
+        assert "available when @variables.isVerified==True" in start_section

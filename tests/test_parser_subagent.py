@@ -98,3 +98,154 @@ Do things.
 """)
     topic = parse_subagent(md)
     assert topic.name == "test"
+
+
+def test_subagent_topic_label(tmp_path: Path):
+    """The agentforce.label field maps to topic.label."""
+    md = tmp_path / "verification.md"
+    md.write_text("""---
+name: customer-verification
+description: Verify customer identity
+agentforce:
+  label: "Service Customer Verification"
+---
+Verify the customer.
+""")
+    topic = parse_subagent(md)
+    assert topic.label == "Service Customer Verification"
+
+
+def test_subagent_available_when(tmp_path: Path):
+    """The agentforce.available_when field maps to topic.available_when."""
+    md = tmp_path / "account.md"
+    md.write_text("""---
+name: account-management
+description: Manage accounts
+agentforce:
+  available_when: "@variables.isVerified==True"
+---
+Manage accounts.
+""")
+    topic = parse_subagent(md)
+    assert topic.available_when == "@variables.isVerified==True"
+
+
+def test_subagent_with_bindings(tmp_path: Path):
+    """The agentforce.bindings.ToolName.with maps to invocation with_bindings."""
+    md = tmp_path / "orders.md"
+    md.write_text("""---
+name: orders
+description: Order support
+tools: CheckOrder
+agentforce:
+  bindings:
+    CheckOrder:
+      with:
+        customerId: "@variables.VerifiedCustomerId"
+        orderSubject: "..."
+---
+Handle orders.
+""")
+    topic = parse_subagent(md)
+    assert len(topic.reasoning.action_invocations) == 1
+    inv = topic.reasoning.action_invocations[0]
+    assert inv.with_bindings == {
+        "customerId": "@variables.VerifiedCustomerId",
+        "orderSubject": "...",
+    }
+
+
+def test_subagent_set_bindings(tmp_path: Path):
+    """The agentforce.bindings.ToolName.set maps to invocation set_bindings."""
+    md = tmp_path / "verify.md"
+    md.write_text("""---
+name: verify
+description: Verify identity
+tools: IdentifyRecord
+agentforce:
+  bindings:
+    IdentifyRecord:
+      set:
+        "@variables.isVerified": "@outputs.isVerified"
+        "@variables.customerId": "@outputs.customerId"
+---
+Verify identity.
+""")
+    topic = parse_subagent(md)
+    inv = topic.reasoning.action_invocations[0]
+    assert inv.set_bindings == {
+        "@variables.isVerified": "@outputs.isVerified",
+        "@variables.customerId": "@outputs.customerId",
+    }
+
+
+def test_subagent_post_action_branch(tmp_path: Path):
+    """The agentforce.bindings.ToolName.after maps to post_branches."""
+    md = tmp_path / "verify.md"
+    md.write_text("""---
+name: verify
+description: Verify identity
+tools: IdentifyRecord
+agentforce:
+  bindings:
+    IdentifyRecord:
+      set:
+        "@variables.isVerified": "@outputs.isVerified"
+      after:
+        if: "@variables.isVerified"
+        transition_to: "case-management"
+---
+Verify identity.
+""")
+    topic = parse_subagent(md)
+    inv = topic.reasoning.action_invocations[0]
+    assert len(inv.post_branches) == 1
+    branch = inv.post_branches[0]
+    assert branch.condition == "@variables.isVerified"
+    assert branch.transition_to == "case_management"
+
+
+def test_subagent_multiple_post_branches(tmp_path: Path):
+    """Multiple after branches as a list."""
+    md = tmp_path / "router.md"
+    md.write_text("""---
+name: router
+description: Route based on status
+tools: CheckStatus
+agentforce:
+  bindings:
+    CheckStatus:
+      set:
+        "@variables.status": "@outputs.status"
+      after:
+        - if: "@variables.status"
+          transition_to: "resolved"
+        - if: "@variables.needsEscalation"
+          transition_to: "escalation"
+---
+Route.
+""")
+    topic = parse_subagent(md)
+    inv = topic.reasoning.action_invocations[0]
+    assert len(inv.post_branches) == 2
+    assert inv.post_branches[0].transition_to == "resolved"
+    assert inv.post_branches[1].transition_to == "escalation"
+
+
+def test_subagent_no_agentforce_section(tmp_path: Path):
+    """Without agentforce section, topic has no label, no available_when, no bindings."""
+    md = tmp_path / "simple.md"
+    md.write_text("""---
+name: simple
+description: Simple topic
+tools: MyTool
+---
+Do things.
+""")
+    topic = parse_subagent(md)
+    assert topic.label is None
+    assert topic.available_when is None
+    inv = topic.reasoning.action_invocations[0]
+    assert inv.with_bindings == {}
+    assert inv.set_bindings == {}
+    assert inv.post_branches == []

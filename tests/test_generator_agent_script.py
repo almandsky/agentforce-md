@@ -12,6 +12,7 @@ from scripts.ir.models import (
     InstructionMode,
     KnowledgeBlock,
     LanguageBlock,
+    PostActionBranch,
     ReasoningBlock,
     StartAgent,
     SystemBlock,
@@ -400,6 +401,92 @@ def test_default_valued_fields_omitted():
     assert "default_value:" not in output
     # label/source should not appear either
     assert "source:" not in output.split("basic:")[1].split("target:")[0]
+
+
+def test_post_action_branch():
+    """Post-action if/transition renders correctly."""
+    agent = _make_minimal_agent()
+    agent.topics[0].action_definitions = [
+        ActionDefinition(
+            name="identify",
+            description="Identify customer",
+            target="flow://Identify_Record",
+        ),
+    ]
+    agent.topics[0].reasoning.action_invocations = [
+        ActionInvocation(
+            name="identify",
+            action_ref="@actions.identify",
+            set_bindings={"@variables.isVerified": "@outputs.isVerified"},
+            post_branches=[
+                PostActionBranch(
+                    condition="@variables.isVerified",
+                    transition_to="case_management",
+                ),
+            ],
+        ),
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert "set @variables.isVerified = @outputs.isVerified" in output
+    assert "if @variables.isVerified:" in output
+    assert "transition to @topic.case_management" in output
+
+
+def test_post_action_multiple_branches():
+    """Multiple post-action branches render in order."""
+    agent = _make_minimal_agent()
+    agent.topics[0].action_definitions = [
+        ActionDefinition(name="check", description="Check", target="flow://Check"),
+    ]
+    agent.topics[0].reasoning.action_invocations = [
+        ActionInvocation(
+            name="check",
+            action_ref="@actions.check",
+            post_branches=[
+                PostActionBranch(condition="@variables.urgent", transition_to="escalation"),
+                PostActionBranch(condition="@variables.resolved", transition_to="done"),
+            ],
+        ),
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert "if @variables.urgent:" in output
+    assert "transition to @topic.escalation" in output
+    assert "if @variables.resolved:" in output
+    assert "transition to @topic.done" in output
+
+
+def test_full_action_invocation_with_all_features():
+    """An invocation with with, set, and post-branch renders in correct order."""
+    agent = _make_minimal_agent()
+    agent.topics[0].action_definitions = [
+        ActionDefinition(name="verify", description="Verify", target="flow://Verify"),
+    ]
+    agent.topics[0].reasoning.action_invocations = [
+        ActionInvocation(
+            name="verify",
+            action_ref="@actions.verify",
+            description="Verify customer identity",
+            available_when="@variables.hasId==True",
+            with_bindings={"customerId": "@variables.CustomerId"},
+            set_bindings={"@variables.isVerified": "@outputs.verified"},
+            post_branches=[
+                PostActionBranch(condition="@variables.isVerified", transition_to="account_mgmt"),
+            ],
+        ),
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    # Verify ordering within the invocation
+    topic_section = output.split("topic main:")[1]
+    desc_pos = topic_section.index("description:")
+    avail_pos = topic_section.index("available when")
+    with_pos = topic_section.index("with customerId")
+    set_pos = topic_section.index("set @variables")
+    if_pos = topic_section.index("if @variables.isVerified:")
+    trans_pos = topic_section.index("transition to @topic.account_mgmt")
+    assert desc_pos < avail_pos < with_pos < set_pos < if_pos < trans_pos
 
 
 def test_four_space_indentation():
