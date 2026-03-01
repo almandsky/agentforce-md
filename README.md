@@ -127,7 +127,15 @@ python3 ~/.claude/agentforce-md-install.py --uninstall
 
 After installation, restart Claude Code. The `/agentforce-convert`, `/agentforce-discover`, `/agentforce-scaffold`, and `/agentforce-run` skills will be available in any project.
 
-This installs side-by-side with sf-skills — no conflicts.
+### Recommended: install sf-skills
+
+agentforce-md works best alongside [sf-skills](https://github.com/Jaganpro/sf-skills), which provides Claude Code skills for creating Flows, Apex classes, and other Salesforce metadata that your agents reference. When `/agentforce-discover` finds missing targets, you can use `/sf-flow` or `/sf-apex` to build them directly in Claude Code.
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Jaganpro/sf-skills/main/tools/install.sh | bash
+```
+
+Both install to `~/.claude/skills/` with no conflicts (`agentforce-*` vs `sf-*` prefixes).
 
 ## Quick start
 
@@ -135,6 +143,7 @@ This installs side-by-side with sf-skills — no conflicts.
 
 - Python 3.10+ (the installer creates a bundled venv automatically)
 - Salesforce CLI >= 2.123.1 (for deployment)
+- [sf-skills](https://github.com/Jaganpro/sf-skills) (recommended — for creating Flows, Apex, and other metadata)
 
 ### Initialize from a template
 
