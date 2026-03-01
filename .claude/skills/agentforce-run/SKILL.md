@@ -13,20 +13,20 @@ Execute individual SKILL.md actions against a live Salesforce org without deploy
 
 ```bash
 # Run an action with inputs
-python3 -m scripts.cli run \
+~/.claude/agentforce-md/bin/agentforce-md run \
   --skill .claude/skills/check-order-status/SKILL.md \
   -o <org-alias> \
   --input '{"order_number":"12345"}'
 
 # Dry run — show what would be called
-python3 -m scripts.cli run \
+~/.claude/agentforce-md/bin/agentforce-md run \
   --skill .claude/skills/check-order-status/SKILL.md \
   -o <org-alias> \
   --input '{"order_number":"12345"}' \
   --dry-run
 
 # You can also pass a skill directory (SKILL.md is appended automatically)
-python3 -m scripts.cli run \
+~/.claude/agentforce-md/bin/agentforce-md run \
   --skill .claude/skills/check-order-status \
   -o <org-alias> \
   --input '{"order_number":"12345"}'

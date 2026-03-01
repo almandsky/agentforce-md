@@ -107,26 +107,39 @@ Each sub-agent `.md` file becomes a `Topic`. Each tool listed in a sub-agent bec
 
 The bundle writer creates the output directory structure under `aiAuthoringBundles/<AgentName>/`.
 
+## Installation
+
+Install agentforce-md as Claude Code skills available in any project:
+
+```bash
+# Install (one command)
+curl -sSL https://raw.githubusercontent.com/sky-chen/agentforce-md/main/tools/install.sh | bash
+
+# Update to latest version
+python3 ~/.claude/agentforce-md-install.py --update
+
+# Check installation status
+python3 ~/.claude/agentforce-md-install.py --status
+
+# Uninstall
+python3 ~/.claude/agentforce-md-install.py --uninstall
+```
+
+After installation, restart Claude Code. The `/agentforce-convert`, `/agentforce-discover`, `/agentforce-scaffold`, and `/agentforce-run` skills will be available in any project.
+
+This installs side-by-side with sf-skills — no conflicts.
+
 ## Quick start
 
 ### Prerequisites
 
-- Python 3.10+
-- `pyyaml` (`pip install pyyaml`)
+- Python 3.10+ (the installer creates a bundled venv automatically)
 - Salesforce CLI >= 2.123.1 (for deployment)
-
-### Setup
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install pyyaml pytest
-```
 
 ### Initialize from a template
 
 ```bash
-python3 -m scripts.cli init --template multi-topic --output-dir my-agent
+agentforce-md init --template multi-topic --output-dir my-agent
 ```
 
 This creates a starter project with `CLAUDE.md` and sub-agent files you can edit.
@@ -138,7 +151,7 @@ Available templates: `hello-world`, `multi-topic`, `verification-gate`
 Service agents require an Agent Service Account (ASA) user. Query your org to find available ASA users:
 
 ```bash
-python3 -m scripts.cli setup -o MyOrg
+agentforce-md setup -o MyOrg
 ```
 
 This queries for users with the "Einstein Agent User" profile and displays them:
@@ -155,7 +168,7 @@ Found 2 ASA user(s):
 ### Convert markdown to .agent
 
 ```bash
-python3 -m scripts.cli convert \
+agentforce-md convert \
   --project-root my-agent \
   --agent-name AcmeAgent \
   --default-agent-user "acmeagent@00dwt00000bvllc880056991.ext"
@@ -169,13 +182,13 @@ The `--default-agent-user` flag is required for service agents. If omitted, a wa
 
 ```bash
 # Validate without deploying
-python3 -m scripts.cli deploy --api-name AcmeAgent -o MyOrg --dry-run
+agentforce-md deploy --api-name AcmeAgent -o MyOrg --dry-run
 
 # Publish (compile + deploy)
-python3 -m scripts.cli deploy --api-name AcmeAgent -o MyOrg
+agentforce-md deploy --api-name AcmeAgent -o MyOrg
 
 # Publish and activate
-python3 -m scripts.cli deploy --api-name AcmeAgent -o MyOrg --activate
+agentforce-md deploy --api-name AcmeAgent -o MyOrg --activate
 ```
 
 The `deploy` command calls `sf agent publish authoring-bundle`, which compiles the Agent Script into BotDefinition/BotVersion/GenAiPlannerBundle metadata and deploys everything to the org.
@@ -183,8 +196,10 @@ The `deploy` command calls `sf agent publish authoring-bundle`, which compiles t
 ### Preview
 
 ```bash
-python3 -m scripts.cli preview --api-name AcmeAgent -o MyOrg --client-app my-app
+agentforce-md preview --api-name AcmeAgent -o MyOrg --client-app my-app
 ```
+
+> **Note:** `agentforce-md` is a shorthand for `~/.claude/agentforce-md/bin/agentforce-md`. The installer places the wrapper script there automatically.
 
 ## Input file formats
 
@@ -376,7 +391,7 @@ SKILL.md files reference Salesforce org resources (flows, apex classes) that may
 Check which SKILL.md targets exist in the org:
 
 ```bash
-python3 -m scripts.cli discover --project-root my-agent -o MyOrg
+agentforce-md discover --project-root my-agent -o MyOrg
 ```
 
 Outputs a table of targets with found/missing status. Exit code 1 if any are missing.
@@ -387,10 +402,10 @@ Generate stub metadata for missing targets:
 
 ```bash
 # Discover + scaffold missing targets
-python3 -m scripts.cli scaffold --project-root my-agent -o MyOrg
+agentforce-md scaffold --project-root my-agent -o MyOrg
 
 # Scaffold all targets without checking the org
-python3 -m scripts.cli scaffold --project-root my-agent -o MyOrg --skip-discover
+agentforce-md scaffold --project-root my-agent -o MyOrg --skip-discover
 ```
 
 Creates Flow XML (`.flow-meta.xml`) and Apex class (`.cls` + `.cls-meta.xml`) stubs with matching input/output variables from SKILL.md definitions. Review the stubs, fill in business logic, and deploy with `sf project deploy start`.
@@ -400,13 +415,13 @@ Creates Flow XML (`.flow-meta.xml`) and Apex class (`.cls` + `.cls-meta.xml`) st
 Execute a single action against a live org:
 
 ```bash
-python3 -m scripts.cli run \
+agentforce-md run \
   --skill my-agent/.claude/skills/check-order-status/SKILL.md \
   -o MyOrg \
   --input '{"order_number":"12345"}'
 
 # Dry run — show invocation plan without executing
-python3 -m scripts.cli run \
+agentforce-md run \
   --skill my-agent/.claude/skills/check-order-status/SKILL.md \
   -o MyOrg \
   --input '{"order_number":"12345"}' \
@@ -448,51 +463,82 @@ agentforce-md run       --skill SKILL_PATH -o ORG [--input JSON] [--dry-run]
 ## Project structure
 
 ```
-agents/                       # User-created agents (checked into git)
-  <agent-name>/               #   Each agent gets its own directory
-    CLAUDE.md                 #     Agent persona and instructions
-    .claude/agents/*.md       #     One file per topic
-    .claude/skills/*/SKILL.md #     Optional: action targets
+.claude/skills/                   # Claude Code skills (installed globally)
+  agentforce-convert/SKILL.md     #   Full round-trip orchestration
+  agentforce-discover/SKILL.md    #   Check org for SKILL.md targets
+  agentforce-scaffold/SKILL.md    #   Generate stub metadata
+  agentforce-run/SKILL.md         #   Execute actions via REST API
 
-scripts/                      # The converter tool
-├── cli.py                    # CLI entry point (argparse)
-├── convert.py                # Main orchestrator (convert command)
-├── discover.py               # Org metadata discovery (discover command)
-├── scaffold.py               # Stub metadata generation (scaffold command)
-├── local_run.py              # Action execution (run command)
+bin/
+  agentforce-md                   # CLI wrapper script (uses bundled venv)
+
+tools/
+  install.py                      # Python installer (install/update/uninstall/status)
+  install.sh                      # Bash bootstrap (checks Python, downloads install.py)
+
+scripts/                          # The converter tool (Python package)
+├── cli.py                        # CLI entry point (argparse)
+├── convert.py                    # Main orchestrator (convert command)
+├── discover.py                   # Org metadata discovery (discover command)
+├── scaffold.py                   # Stub metadata generation (scaffold command)
+├── local_run.py                  # Action execution (run command)
 ├── parser/
-│   ├── frontmatter.py        # YAML frontmatter extraction
-│   ├── markdown_utils.py     # Body → scope + instruction lines
-│   ├── claude_md.py          # Parse CLAUDE.md
-│   ├── subagent.py           # Parse .claude/agents/*.md
-│   └── skill_md.py           # Parse .claude/skills/*/SKILL.md
+│   ├── frontmatter.py            # YAML frontmatter extraction
+│   ├── markdown_utils.py         # Body → scope + instruction lines
+│   ├── claude_md.py              # Parse CLAUDE.md
+│   ├── subagent.py               # Parse .claude/agents/*.md
+│   └── skill_md.py               # Parse .claude/skills/*/SKILL.md
 ├── ir/
-│   ├── models.py             # Dataclass IR definitions
-│   ├── naming.py             # Name conversion utilities
-│   ├── defaults.py           # Auto-generate linked vars, start_agent, connection
-│   └── validate.py           # Pre-generation validation (names, duplicates, etc.)
+│   ├── models.py                 # Dataclass IR definitions
+│   ├── naming.py                 # Name conversion utilities
+│   ├── defaults.py               # Auto-generate linked vars, start_agent, connection
+│   └── validate.py               # Pre-generation validation (names, duplicates, etc.)
 ├── generator/
-│   ├── agent_script.py       # IR → .agent file text
-│   ├── bundle_meta.py        # Constant bundle-meta.xml
-│   ├── writer.py             # Write files to disk
-│   ├── flow_xml.py           # Flow XML stub generator
-│   └── apex_stub.py          # Apex @InvocableMethod stub generator
+│   ├── agent_script.py           # IR → .agent file text
+│   ├── bundle_meta.py            # Constant bundle-meta.xml
+│   ├── writer.py                 # Write files to disk
+│   ├── flow_xml.py               # Flow XML stub generator
+│   └── apex_stub.py              # Apex @InvocableMethod stub generator
 └── deploy/
-    └── sf_cli.py             # Wraps sf agent CLI commands
+    └── sf_cli.py                 # Wraps sf agent CLI commands
 
-templates/                    # Starter project templates
-tests/                        # pytest test suite
-
-force-app/main/default/       # Generated output (not checked in)
-  aiAuthoringBundles/
-    <AgentName>/
-      <AgentName>.agent
-      <AgentName>.bundle-meta.xml
+templates/                        # Starter project templates
+tests/                            # pytest test suite
+VERSION                           # Version string (read by installer)
 ```
 
-## Running tests
+After installation, the layout under `~/.claude/` is:
+
+```
+~/.claude/
+├── agentforce-md/                # Installed repo copy
+│   ├── scripts/                  # Python CLI backend
+│   ├── templates/                # For `init` command
+│   ├── bin/agentforce-md         # CLI wrapper script
+│   └── .venv/                    # Bundled venv with pyyaml
+├── skills/
+│   ├── agentforce-convert/       # Installed skills
+│   ├── agentforce-discover/
+│   ├── agentforce-scaffold/
+│   ├── agentforce-run/
+│   └── sf-*/                     # sf-skills (untouched)
+├── .agentforce-md.json           # Version + install metadata
+└── agentforce-md-install.py      # Self-updater
+```
+
+## Development
+
+For contributing to agentforce-md:
 
 ```bash
-source .venv/bin/activate
+git clone https://github.com/sky-chen/agentforce-md.git
+cd agentforce-md
+python3 -m venv .venv && source .venv/bin/activate
+pip install pyyaml pytest
+
+# Run tests
 python -m pytest tests/ -v
+
+# Install from local clone (reflects your changes)
+python3 tools/install.py --force
 ```

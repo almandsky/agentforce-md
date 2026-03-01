@@ -24,17 +24,17 @@ Determine the user's intent from their input:
 
 2. **Convert only** (input is "convert" or user has existing markdown):
    - Check if `--default-agent-user` is needed (service agents)
-   - Run `python3 -m scripts.cli convert --project-root . --agent-name <AgentName> --default-agent-user <ASA_USER>`
+   - Run `~/.claude/agentforce-md/bin/agentforce-md convert --project-root . --agent-name <AgentName> --default-agent-user <ASA_USER>`
    - Show the output .agent file
 
 3. **Deploy only** (input starts with "deploy"):
-   - Run `python3 -m scripts.cli deploy --api-name <Name> -o <Org> --activate`
+   - Run `~/.claude/agentforce-md/bin/agentforce-md deploy --api-name <Name> -o <Org> --activate`
 
 4. **Init template** (input starts with "init"):
-   - Run `python3 -m scripts.cli init --template <template-name>`
+   - Run `~/.claude/agentforce-md/bin/agentforce-md init --template <template-name>`
 
 5. **Setup** (input starts with "setup"):
-   - Run `python3 -m scripts.cli setup -o <Org>`
+   - Run `~/.claude/agentforce-md/bin/agentforce-md setup -o <Org>`
    - Show available ASA users
 
 ## Full Round-Trip Workflow
@@ -49,7 +49,7 @@ Ask the user for:
 
 Then run setup to find ASA users:
 ```bash
-python3 -m scripts.cli setup -o <TargetOrg>
+~/.claude/agentforce-md/bin/agentforce-md setup -o <TargetOrg>
 ```
 
 If multiple ASA users exist, ask which one to use. If none exist, tell the user to create one in Setup > Agent Service Accounts.
@@ -126,7 +126,7 @@ All fields except `target` are optional. The `label` fields provide human-readab
 ### Step 3: Run the converter
 
 ```bash
-python3 -m scripts.cli convert \
+~/.claude/agentforce-md/bin/agentforce-md convert \
   --project-root agents/<agent-dir> \
   --agent-name <AgentName> \
   --default-agent-user "<ASA_USERNAME>"
@@ -141,13 +141,13 @@ Output goes to `force-app/main/default/aiAuthoringBundles/<AgentName>/` (relativ
 Check that SKILL.md targets exist in the org before deploying:
 
 ```bash
-python3 -m scripts.cli discover --project-root agents/<agent-dir> -o <TargetOrg>
+~/.claude/agentforce-md/bin/agentforce-md discover --project-root agents/<agent-dir> -o <TargetOrg>
 ```
 
 If targets are missing, scaffold stubs:
 
 ```bash
-python3 -m scripts.cli scaffold --project-root agents/<agent-dir> -o <TargetOrg>
+~/.claude/agentforce-md/bin/agentforce-md scaffold --project-root agents/<agent-dir> -o <TargetOrg>
 ```
 
 ### Step 5: Review
@@ -161,10 +161,10 @@ Read the generated .agent file and display it to the user. Highlight:
 
 ```bash
 # Validate first
-python3 -m scripts.cli deploy --api-name <AgentName> -o <TargetOrg> --dry-run
+~/.claude/agentforce-md/bin/agentforce-md deploy --api-name <AgentName> -o <TargetOrg> --dry-run
 
 # If validation passes, publish and activate
-python3 -m scripts.cli deploy --api-name <AgentName> -o <TargetOrg> --activate
+~/.claude/agentforce-md/bin/agentforce-md deploy --api-name <AgentName> -o <TargetOrg> --activate
 ```
 
 ## Conventions

@@ -14,7 +14,7 @@ Validate that SKILL.md targets actually exist in a Salesforce org.
 Run the discover command against a target org:
 
 ```bash
-python3 -m scripts.cli discover --project-root <path> -o <org-alias>
+~/.claude/agentforce-md/bin/agentforce-md discover --project-root <path> -o <org-alias>
 ```
 
 ## What it does
@@ -35,5 +35,5 @@ Exit code 0 if all targets found, 1 if any are missing.
 If targets are missing, suggest running `scaffold` to generate stub metadata:
 
 ```bash
-python3 -m scripts.cli scaffold --project-root <path> -o <org-alias>
+~/.claude/agentforce-md/bin/agentforce-md scaffold --project-root <path> -o <org-alias>
 ```
