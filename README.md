@@ -442,14 +442,14 @@ Invokes the flow or apex action via REST API and returns the output values.
 ## CLI reference
 
 ```
-~/.claude/agentforce-md/bin/agentforce-md setup     -o ORG
-~/.claude/agentforce-md/bin/agentforce-md convert   --project-root DIR --agent-name NAME [--agent-type TYPE] [--default-agent-user USER] [--output-dir DIR] [--strict]
-~/.claude/agentforce-md/bin/agentforce-md deploy    --api-name NAME -o ORG [--dry-run] [--activate] [--skip-retrieve]
-~/.claude/agentforce-md/bin/agentforce-md preview   --api-name NAME -o ORG --client-app APP
-~/.claude/agentforce-md/bin/agentforce-md init      --template TEMPLATE [--output-dir DIR]
-~/.claude/agentforce-md/bin/agentforce-md discover  --project-root DIR -o ORG
-~/.claude/agentforce-md/bin/agentforce-md scaffold  --project-root DIR -o ORG [--output-dir DIR] [--skip-discover]
-~/.claude/agentforce-md/bin/agentforce-md run       --skill SKILL_PATH -o ORG [--input JSON] [--dry-run]
+~/.claude/agentforce-md/bin/agentforce-md [-v] setup     -o ORG
+~/.claude/agentforce-md/bin/agentforce-md [-v] convert   [--project-root DIR] --agent-name NAME [--agent-type TYPE] [--default-agent-user USER] [--output-dir DIR] [--strict]
+~/.claude/agentforce-md/bin/agentforce-md [-v] deploy    --api-name NAME -o ORG [--dry-run] [--activate] [--skip-retrieve]
+~/.claude/agentforce-md/bin/agentforce-md [-v] preview   --api-name NAME -o ORG --client-app APP
+~/.claude/agentforce-md/bin/agentforce-md [-v] init      [--template TEMPLATE] [--output-dir DIR]
+~/.claude/agentforce-md/bin/agentforce-md [-v] discover  [--project-root DIR] -o ORG
+~/.claude/agentforce-md/bin/agentforce-md [-v] scaffold  [--project-root DIR] -o ORG [--output-dir DIR] [--skip-discover]
+~/.claude/agentforce-md/bin/agentforce-md [-v] run       --skill SKILL_PATH -o ORG [--input JSON] [--dry-run]
 ```
 
 | Command | Description |
