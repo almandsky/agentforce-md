@@ -9,6 +9,7 @@ from ..ir.models import (
     ActionInvocation,
     AgentDefinition,
     InstructionMode,
+    PostActionBranch,
     ReasoningBlock,
     StartAgent,
     Topic,
@@ -103,8 +104,8 @@ class AgentScriptGenerator:
             lines.append(f"{INDENT}{var.name}: linked {var.var_type}")
             if var.source:
                 lines.append(f"{INDENT}{INDENT}source: {var.source}")
-            if var.description:
-                lines.append(f'{INDENT}{INDENT}description: "{_escape(var.description)}"')
+        if var.description:
+            lines.append(f'{INDENT}{INDENT}description: "{_escape(var.description)}"')
         if var.visibility:
             lines.append(f'{INDENT}{INDENT}visibility: "{var.visibility}"')
         if var.label:
@@ -293,6 +294,7 @@ class AgentScriptGenerator:
     def _render_action_invocation(self, inv: ActionInvocation, indent_level: int) -> list[str]:
         indent = INDENT * indent_level
         inner = INDENT * (indent_level + 1)
+        deeper = INDENT * (indent_level + 2)
         lines = []
 
         lines.append(f"{indent}{inv.name}: {inv.action_ref}")
@@ -308,6 +310,10 @@ class AgentScriptGenerator:
 
         for var_ref, output_ref in inv.set_bindings.items():
             lines.append(f"{inner}set {var_ref} = {output_ref}")
+
+        for branch in inv.post_branches:
+            lines.append(f"{inner}if {branch.condition}:")
+            lines.append(f"{deeper}transition to @topic.{branch.transition_to}")
 
         return lines
 

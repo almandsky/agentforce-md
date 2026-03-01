@@ -68,17 +68,56 @@ agents/<agent-dir>/
 ```
 
 **CLAUDE.md** — the agent's persona and global instructions. Can be plain markdown or use YAML frontmatter for overrides:
-```markdown
+```yaml
 ---
 welcome: "Welcome to Acme Support!"
 error: "Something went wrong. Please try again."
 agent_type: AgentforceServiceAgent
+knowledge:
+  citations_enabled: true
+variables:
+  # Mutable variables (agent state, writable, has defaults)
+  isVerified:
+    type: boolean
+    modifier: mutable
+    default: "False"
+    description: "Whether the customer has been verified"
+    label: "Customer Verified"
+    visibility: Internal
+  VerifiedCustomerId:
+    type: string
+    modifier: mutable
+    description: "The verified customer record ID"
+    label: "Verified Customer ID"
+    visibility: Internal
+  # Linked variables (context, read-only, has source)
+  # Note: Service agents auto-add EndUserId, RoutableId, ContactId if not defined here.
+  # Define them explicitly to override source or add extra linked vars.
+  EndUserLanguage:
+    type: string
+    modifier: linked
+    source: "@MessagingSession.EndUserLanguage"
+    description: "End user language"
+    visibility: External
 ---
 You are a customer support agent for Acme Corp.
 Be helpful, professional, and concise.
 ```
 
-Alternatively, use `## Welcome Message` and `## Error Message` sections in the body instead of frontmatter. Plain markdown (no frontmatter, no sections) also works — the entire content becomes system instructions.
+Supported frontmatter fields:
+- `welcome`, `error` — Messages (or use `## Welcome Message` / `## Error Message` sections)
+- `agent_type` — `AgentforceServiceAgent` (default) or `AgentforceEmployeeAgent`
+- `company` — Company name
+- `knowledge` — Knowledge block settings (`citations_enabled: true/false`)
+- `variables` — Agent-level variables (see below)
+
+**Variables** are agent-level state shared across all topics. Two modifiers:
+- `mutable` (default) — Writable state with defaults. Actions can `set` values into these. Types: string, number, boolean, object, date, id, list[T].
+- `linked` — Read-only context variables with a `source`. Types: string, number, boolean, date, timestamp, currency, id only (no list/object). Cannot have defaults.
+
+Service agents auto-add `EndUserId`, `RoutableId`, and `ContactId` as linked variables if not explicitly defined. Define them in frontmatter to override their source.
+
+Plain markdown (no frontmatter, no sections) also works — the entire content becomes system instructions.
 
 **Sub-agent files** (`.claude/agents/<topic-name>.md`) — one per topic:
 ```yaml
@@ -86,10 +125,44 @@ Alternatively, use `## Welcome Message` and `## Error Message` sections in the b
 name: <topic-name>
 description: <what this topic handles>
 tools: <comma-separated tool names if any>
+agentforce:
+  label: "Human-Readable Topic Name"          # optional
+  available_when: "@variables.isVerified==True" # optional: guard for start_agent transition
+  bindings:                                     # optional: action-variable bindings
+    ToolName:
+      with:                                     # bind inputs from variables or LLM
+        customerId: "@variables.VerifiedCustomerId"
+        caseSubject: "..."                      # "..." means LLM slot-fills from conversation
+      set:                                      # capture outputs into variables
+        "@variables.isVerified": "@outputs.isVerified"
+      after:                                    # conditional transition after action
+        if: "@variables.isVerified"
+        transition_to: "case-management"        # kebab-case topic name
 ---
 <Scope: what this topic does>
 
 <Instruction lines: how to handle requests>
+```
+
+The `agentforce:` section is optional. Without it, topics render with no label, no guard, and bare action invocations (LLM decides all inputs).
+
+**Binding details:**
+- `with` — Maps action input params. Use `@variables.X` to bind from a variable, or `"..."` for LLM slot-fill.
+- `set` — After the action runs, capture outputs into variables: `@variables.X: @outputs.Y`.
+- `after` — Conditional transition: if a variable is truthy after the action, route to another topic. Can be a single `{if, transition_to}` or a list of them.
+- `available_when` — Prevents the LLM from routing to this topic until the condition is met. Applied to the `start_agent` transition for this topic.
+- `label` — Human-readable name shown in the Agentforce UI.
+
+**Multiple after branches** (list form):
+```yaml
+agentforce:
+  bindings:
+    CheckStatus:
+      after:
+        - if: "@variables.urgent"
+          transition_to: "escalation"
+        - if: "@variables.resolved"
+          transition_to: "completion"
 ```
 
 **SKILL.md files** (optional, `.claude/skills/<tool-name>/SKILL.md`) — for tools that have known Salesforce targets:

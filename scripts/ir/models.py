@@ -74,6 +74,19 @@ class ActionDefinition:
 
 
 @dataclass
+class PostActionBranch:
+    """Conditional transition after an action invocation.
+
+    Rendered as::
+
+        if @variables.isVerified:
+            transition to @topic.CaseManagement
+    """
+    condition: str   # e.g. "@variables.isVerified"
+    transition_to: str  # topic name (snake_case)
+
+
+@dataclass
 class ActionInvocation:
     """Level 2: Defines HOW to call it (with/set bindings, guards)."""
     name: str
@@ -83,6 +96,7 @@ class ActionInvocation:
     set_bindings: dict[str, str] = field(default_factory=dict)   # @variables.x -> @outputs.y
     available_when: Optional[str] = None  # guard condition
     transition_target: Optional[str] = None  # for @utils.transition: topic name
+    post_branches: list[PostActionBranch] = field(default_factory=list)
 
 
 @dataclass
@@ -116,6 +130,7 @@ class Topic:
     action_definitions: list[ActionDefinition] = field(default_factory=list)
     reasoning: ReasoningBlock = field(default_factory=ReasoningBlock)
     label: Optional[str] = None
+    available_when: Optional[str] = None  # guard for start_agent transition
 
 
 @dataclass

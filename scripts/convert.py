@@ -14,6 +14,7 @@ from .ir.models import (
     AgentDefinition,
     AgentType,
     ConfigBlock,
+    KnowledgeBlock,
     SystemBlock,
     Topic,
 )
@@ -122,6 +123,12 @@ def convert(
 
     effective_agent_type = claude_md.agent_type or agent_type
 
+    knowledge_block = None
+    if claude_md.knowledge_citations_enabled is not None:
+        knowledge_block = KnowledgeBlock(
+            citations_enabled=claude_md.knowledge_citations_enabled,
+        )
+
     agent = AgentDefinition(
         config=ConfigBlock(
             developer_name=dev_name,
@@ -130,6 +137,8 @@ def convert(
             default_agent_user=default_agent_user,
         ),
         system=system_block,
+        variables=list(claude_md.variables),
+        knowledge=knowledge_block,
         topics=topics,
     )
 

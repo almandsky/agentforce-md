@@ -230,17 +230,55 @@ welcome: "Welcome to Acme Support!"
 error: "Something went wrong. Please try again."
 agent_type: AgentforceServiceAgent
 company: Acme Corp
+knowledge:
+  citations_enabled: true
+variables:
+  # Mutable variables (agent state, writable)
+  isVerified:
+    type: boolean
+    modifier: mutable
+    default: "False"
+    description: "Whether the customer has been verified"
+    label: "Customer Verified"
+    visibility: Internal
+  VerifiedCustomerId:
+    type: string
+    modifier: mutable
+    description: "The verified customer record ID"
+  # Linked variables (context, read-only)
+  EndUserLanguage:
+    type: string
+    modifier: linked
+    source: "@MessagingSession.EndUserLanguage"
+    description: "End user language"
+    visibility: External
 ---
 You are a customer support agent for Acme Corp.
 Be helpful, professional, and concise.
 ```
 
-Supported frontmatter fields: `welcome`, `error`, `agent_type`, `company`. Alternatively, use `## Welcome Message`, `## Error Message`, or `## Company` sections in the body (frontmatter takes precedence). Recognized sections are extracted and removed from the instructions.
+Supported frontmatter fields:
+- `welcome`, `error` — Messages (or use `## Welcome Message` / `## Error Message` sections)
+- `agent_type` — `AgentforceServiceAgent` (default) or `AgentforceEmployeeAgent`
+- `company` — Company name
+- `knowledge` — Knowledge block (`citations_enabled: true/false`)
+- `variables` — Agent-level variables shared across all topics (see below)
+
+**Variables** have two modifiers:
+- `mutable` (default) — Writable state with defaults. Actions can `set` values into these. Types: string, number, boolean, object, date, id, list[T].
+- `linked` — Read-only context from the platform. Requires `source` (e.g., `@MessagingSession.EndUserLanguage`). Types limited to scalars (no list/object). Cannot have defaults.
+
+Each variable supports: `type`, `modifier`, `default` (mutable only), `source` (linked only), `description`, `label`, `visibility` (Internal/External).
+
+Service agents auto-add `EndUserId`, `RoutableId`, and `ContactId` as linked variables if not defined. Define them explicitly to override their source.
+
+Alternatively, use `## Welcome Message`, `## Error Message`, or `## Company` sections in the body (frontmatter takes precedence). Recognized sections are extracted and removed from the instructions.
 
 ### Sub-agent files (`.claude/agents/*.md`)
 
 YAML frontmatter + markdown body. Each file becomes one topic.
 
+**Basic** (no bindings):
 ```yaml
 ---
 name: order-support
@@ -253,10 +291,43 @@ Always look up the order before processing a return.
 If the order is older than 30 days, escalate to a manager.
 ```
 
+**With agentforce overrides** (labels, guards, variable bindings):
+```yaml
+---
+name: customer-verification
+description: Verify the customer's identity
+tools: IdentifyRecord, IdentifyServiceRecord
+agentforce:
+  label: "Service Customer Verification"
+  available_when: "@variables.isVerified==True"
+  bindings:
+    IdentifyServiceRecord:
+      with:
+        verifiedCustomerID: "@variables.VerifiedCustomerId"
+      set:
+        "@variables.isVerified": "@outputs.isVerified"
+      after:
+        if: "@variables.isVerified"
+        transition_to: "case-management"
+---
+Verify the customer's identity before handling sensitive requests.
+
+Ask for their email or account number.
+Use IdentifyRecord to look up the customer.
+```
+
+Standard fields:
 - `name` — Used as the topic name (kebab-case → snake_case)
 - `description` — Topic description for routing
 - `tools` — Comma-separated or YAML list. Built-in Claude Code tools (Read, Grep, etc.) are filtered out. Custom tools become action definitions — but only if a matching SKILL.md provides a target.
 - Body first paragraph → scope; remaining lines → instruction lines
+
+Optional `agentforce:` section:
+- `label` — Human-readable topic name for the Agentforce UI
+- `available_when` — Guard condition for the `start_agent` transition (e.g., `@variables.isVerified==True`). Prevents routing to this topic until the condition is met.
+- `bindings.<ToolName>.with` — Bind action inputs from variables (`@variables.X`) or mark as LLM slot-fill (`"..."`)
+- `bindings.<ToolName>.set` — Capture action outputs into variables (`@variables.X: @outputs.Y`)
+- `bindings.<ToolName>.after` — Conditional transition after an action runs. Single `{if, transition_to}` or a list of them.
 
 ### SKILL.md files (`.claude/skills/*/SKILL.md`)
 

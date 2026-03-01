@@ -118,3 +118,132 @@ def test_structured_missing_file(tmp_path: Path):
     result = parse_claude_md_structured(tmp_path / "nonexistent.md")
     assert result.instructions == ""
     assert result.welcome_message is None
+
+
+# --- Variables and knowledge parsing tests ---
+
+
+def test_variables_mutable_from_frontmatter(tmp_path: Path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("""---
+variables:
+  isVerified:
+    type: boolean
+    modifier: mutable
+    default: "False"
+    description: "Whether customer is verified"
+    label: "Verified"
+    visibility: Internal
+---
+Agent instructions.
+""")
+    result = parse_claude_md_structured(md)
+    assert len(result.variables) == 1
+    v = result.variables[0]
+    assert v.name == "isVerified"
+    assert v.var_type == "boolean"
+    assert v.modifier.value == "mutable"
+    assert v.default == "False"
+    assert v.description == "Whether customer is verified"
+    assert v.label == "Verified"
+    assert v.visibility == "Internal"
+
+
+def test_variables_linked_from_frontmatter(tmp_path: Path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("""---
+variables:
+  EndUserId:
+    type: string
+    modifier: linked
+    source: "@MessagingSession.MessagingEndUserId"
+    description: "End User ID"
+    visibility: External
+---
+Instructions.
+""")
+    result = parse_claude_md_structured(md)
+    assert len(result.variables) == 1
+    v = result.variables[0]
+    assert v.name == "EndUserId"
+    assert v.modifier.value == "linked"
+    assert v.source == "@MessagingSession.MessagingEndUserId"
+    assert v.visibility == "External"
+
+
+def test_variables_mixed_mutable_and_linked(tmp_path: Path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("""---
+variables:
+  isVerified:
+    type: boolean
+    modifier: mutable
+    default: "False"
+  EndUserId:
+    type: string
+    modifier: linked
+    source: "@MessagingSession.MessagingEndUserId"
+  CaseTopic:
+    type: string
+    modifier: mutable
+---
+Instructions.
+""")
+    result = parse_claude_md_structured(md)
+    assert len(result.variables) == 3
+    assert result.variables[0].modifier.value == "mutable"
+    assert result.variables[1].modifier.value == "linked"
+    assert result.variables[2].modifier.value == "mutable"
+    # Default modifier is mutable
+    assert result.variables[2].default is None
+
+
+def test_variables_default_modifier_is_mutable(tmp_path: Path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("""---
+variables:
+  counter:
+    type: number
+---
+Instructions.
+""")
+    result = parse_claude_md_structured(md)
+    assert result.variables[0].modifier.value == "mutable"
+
+
+def test_no_variables_returns_empty_list(tmp_path: Path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("No frontmatter, just instructions.")
+    result = parse_claude_md_structured(md)
+    assert result.variables == []
+
+
+def test_knowledge_citations_from_frontmatter(tmp_path: Path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("""---
+knowledge:
+  citations_enabled: true
+---
+Instructions.
+""")
+    result = parse_claude_md_structured(md)
+    assert result.knowledge_citations_enabled is True
+
+
+def test_knowledge_citations_false(tmp_path: Path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("""---
+knowledge:
+  citations_enabled: false
+---
+Instructions.
+""")
+    result = parse_claude_md_structured(md)
+    assert result.knowledge_citations_enabled is False
+
+
+def test_no_knowledge_returns_none(tmp_path: Path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("Just instructions.")
+    result = parse_claude_md_structured(md)
+    assert result.knowledge_citations_enabled is None
