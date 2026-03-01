@@ -22,7 +22,7 @@ Skills can be installed globally so they're available in any project:
 python3 tools/install.py
 
 # Or from GitHub
-curl -sSL https://raw.githubusercontent.com/sky-chen/agentforce-md/main/tools/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/almandsky/agentforce-md/main/tools/install.sh | bash
 ```
 
 This installs to `~/.claude/agentforce-md/` with a bundled venv. Skills are copied to `~/.claude/skills/agentforce-*/`. Installs side-by-side with sf-skills (no collisions).

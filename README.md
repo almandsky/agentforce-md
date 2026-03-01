@@ -113,7 +113,7 @@ Install agentforce-md as Claude Code skills available in any project:
 
 ```bash
 # Install (one command)
-curl -sSL https://raw.githubusercontent.com/sky-chen/agentforce-md/main/tools/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/almandsky/agentforce-md/main/tools/install.sh | bash
 
 # Update to latest version
 python3 ~/.claude/agentforce-md-install.py --update
@@ -531,7 +531,7 @@ After installation, the layout under `~/.claude/` is:
 For contributing to agentforce-md:
 
 ```bash
-git clone https://github.com/sky-chen/agentforce-md.git
+git clone https://github.com/almandsky/agentforce-md.git
 cd agentforce-md
 python3 -m venv .venv && source .venv/bin/activate
 pip install pyyaml pytest
