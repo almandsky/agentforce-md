@@ -392,7 +392,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print("Next steps:")
     print("  1. Edit CLAUDE.md with your agent instructions")
     print("  2. Edit .claude/agents/*.md for your topics")
-    print("  3. Run: agentforce-md convert --agent-name YourAgent")
+    print(f"  3. Run: {_cli_name()} convert --agent-name YourAgent")
     return 0
 
 
