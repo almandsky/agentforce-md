@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+INSTALL_DIR="${HOME}/.claude/agentforce-md"
+PYTHON="${INSTALL_DIR}/.venv/bin/python3"
+if [ ! -f "$PYTHON" ]; then
+    echo "Error: agentforce-md venv not found. Run: python3 ~/.claude/agentforce-md-install.py --force-update" >&2
+    exit 1
+fi
+PYTHONPATH="${INSTALL_DIR}" exec "$PYTHON" -m scripts.cli "$@"

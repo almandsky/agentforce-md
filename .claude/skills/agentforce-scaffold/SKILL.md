@@ -13,13 +13,13 @@ Generate stub metadata files for SKILL.md targets that don't exist in the org.
 
 ```bash
 # Discover missing targets and generate stubs
-python3 -m scripts.cli scaffold --project-root <path> -o <org-alias>
+~/.claude/agentforce-md/bin/agentforce-md scaffold --project-root <path> -o <org-alias>
 
 # Scaffold all targets without checking the org
-python3 -m scripts.cli scaffold --project-root <path> -o <org-alias> --skip-discover
+~/.claude/agentforce-md/bin/agentforce-md scaffold --project-root <path> -o <org-alias> --skip-discover
 
 # Specify output directory
-python3 -m scripts.cli scaffold --project-root <path> -o <org-alias> --output-dir ./force-app/main/default
+~/.claude/agentforce-md/bin/agentforce-md scaffold --project-root <path> -o <org-alias> --output-dir ./force-app/main/default
 ```
 
 ## What it does

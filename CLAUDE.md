@@ -13,26 +13,47 @@ This is the agentforce-md project: a converter from Claude Code markdown convent
 - `tests/` — pytest test suite
 - `notes/` — Research and reference docs
 
-## Running
+## Global installation
+
+Skills can be installed globally so they're available in any project:
 
 ```bash
-# Activate venv
-source .venv/bin/activate
+# From a local clone
+python3 tools/install.py
 
+# Or from GitHub
+curl -sSL https://raw.githubusercontent.com/sky-chen/agentforce-md/main/tools/install.sh | bash
+```
+
+This installs to `~/.claude/agentforce-md/` with a bundled venv. Skills are copied to `~/.claude/skills/agentforce-*/`. Installs side-by-side with sf-skills (no collisions).
+
+## Running (after installation)
+
+```bash
 # Convert a template
-python -m scripts.cli convert --project-root templates/multi-topic --agent-name AcmeAgent
+~/.claude/agentforce-md/bin/agentforce-md convert --project-root templates/multi-topic --agent-name AcmeAgent
 
 # Discover which SKILL.md targets exist in an org
-python -m scripts.cli discover --project-root templates/multi-topic -o MyOrg
+~/.claude/agentforce-md/bin/agentforce-md discover --project-root templates/multi-topic -o MyOrg
 
 # Generate metadata stubs for missing targets
-python -m scripts.cli scaffold --project-root templates/multi-topic -o MyOrg
+~/.claude/agentforce-md/bin/agentforce-md scaffold --project-root templates/multi-topic -o MyOrg
 
 # Execute a single action against a live org
-python -m scripts.cli run --skill templates/multi-topic/.claude/skills/check-order-status/SKILL.md -o MyOrg --input '{"order_number":"12345"}' --dry-run
+~/.claude/agentforce-md/bin/agentforce-md run --skill templates/multi-topic/.claude/skills/check-order-status/SKILL.md -o MyOrg --input '{"order_number":"12345"}' --dry-run
+```
+
+## Development (contributing)
+
+```bash
+# Set up local venv for running tests
+python3 -m venv .venv && source .venv/bin/activate && pip install pyyaml pytest
 
 # Run tests
 python -m pytest tests/ -v
+
+# Install from local clone (reflects your changes)
+python3 tools/install.py --force
 ```
 
 ## Key conventions
