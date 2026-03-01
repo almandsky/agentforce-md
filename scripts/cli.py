@@ -5,9 +5,19 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import shutil
 import sys
 from pathlib import Path
+
+
+def _cli_name() -> str:
+    """Return a user-friendly CLI invocation name for hint messages."""
+    # When invoked via the wrapper script, PYTHONPATH is set to the install dir
+    install_dir = os.environ.get("PYTHONPATH", "")
+    if install_dir and "agentforce-md" in install_dir:
+        return os.path.join(install_dir, "bin", "agentforce-md")
+    return "python3 -m scripts.cli"
 
 from .convert import convert
 from .deploy.sf_cli import SfAgentCli
@@ -206,7 +216,7 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     if args.agent_type == "AgentforceServiceAgent" and not args.default_agent_user:
         print(
             "Warning: --default-agent-user not set. Service agents require an ASA user.\n"
-            "  Run: python3 -m scripts.cli setup -o <YourOrg>\n"
+            f"  Run: {_cli_name()} setup -o <YourOrg>\n"
             "  to find available ASA users in your org.",
             file=sys.stderr,
         )
@@ -333,7 +343,7 @@ def _cmd_setup(args: argparse.Namespace) -> int:
         print(f"  {i:<4} {username:<55} {name}")
 
     print(f"\nUse the Username value with --default-agent-user when converting:")
-    print(f'  python3 -m scripts.cli convert --agent-name MyAgent \\')
+    print(f'  {_cli_name()} convert --agent-name MyAgent \\')
     print(f'    --default-agent-user "{records[0].get("Username", "<username>")}"')
 
     return 0
@@ -413,7 +423,7 @@ def _cmd_discover(args: argparse.Namespace) -> int:
 
     if report.missing:
         print("\n  To generate stubs for missing targets, run:")
-        print(f"    python3 -m scripts.cli scaffold --project-root {args.project_root} -o {args.target_org}")
+        print(f"    {_cli_name()} scaffold --project-root {args.project_root} -o {args.target_org}")
         return 1
 
     print("\n  All targets found in the org.")

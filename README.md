@@ -148,7 +148,7 @@ Both install to `~/.claude/skills/` with no conflicts (`agentforce-*` vs `sf-*` 
 ### Initialize from a template
 
 ```bash
-agentforce-md init --template multi-topic --output-dir my-agent
+~/.claude/agentforce-md/bin/agentforce-md init --template multi-topic --output-dir my-agent
 ```
 
 This creates a starter project with `CLAUDE.md` and sub-agent files you can edit.
@@ -160,7 +160,7 @@ Available templates: `hello-world`, `multi-topic`, `verification-gate`
 Service agents require an Agent Service Account (ASA) user. Query your org to find available ASA users:
 
 ```bash
-agentforce-md setup -o MyOrg
+~/.claude/agentforce-md/bin/agentforce-md setup -o MyOrg
 ```
 
 This queries for users with the "Einstein Agent User" profile and displays them:
@@ -177,7 +177,7 @@ Found 2 ASA user(s):
 ### Convert markdown to .agent
 
 ```bash
-agentforce-md convert \
+~/.claude/agentforce-md/bin/agentforce-md convert \
   --project-root my-agent \
   --agent-name AcmeAgent \
   --default-agent-user "acmeagent@00dwt00000bvllc880056991.ext"
@@ -191,13 +191,13 @@ The `--default-agent-user` flag is required for service agents. If omitted, a wa
 
 ```bash
 # Validate without deploying
-agentforce-md deploy --api-name AcmeAgent -o MyOrg --dry-run
+~/.claude/agentforce-md/bin/agentforce-md deploy --api-name AcmeAgent -o MyOrg --dry-run
 
 # Publish (compile + deploy)
-agentforce-md deploy --api-name AcmeAgent -o MyOrg
+~/.claude/agentforce-md/bin/agentforce-md deploy --api-name AcmeAgent -o MyOrg
 
 # Publish and activate
-agentforce-md deploy --api-name AcmeAgent -o MyOrg --activate
+~/.claude/agentforce-md/bin/agentforce-md deploy --api-name AcmeAgent -o MyOrg --activate
 ```
 
 The `deploy` command calls `sf agent publish authoring-bundle`, which compiles the Agent Script into BotDefinition/BotVersion/GenAiPlannerBundle metadata and deploys everything to the org.
@@ -205,10 +205,10 @@ The `deploy` command calls `sf agent publish authoring-bundle`, which compiles t
 ### Preview
 
 ```bash
-agentforce-md preview --api-name AcmeAgent -o MyOrg --client-app my-app
+~/.claude/agentforce-md/bin/agentforce-md preview --api-name AcmeAgent -o MyOrg --client-app my-app
 ```
 
-> **Note:** `agentforce-md` is a shorthand for `~/.claude/agentforce-md/bin/agentforce-md`. The installer places the wrapper script there automatically.
+> **Tip:** Most users interact through Claude Code skills (`/agentforce-convert`, `/agentforce-run`, etc.) rather than calling the CLI directly. The skills handle the full path automatically.
 
 ## Input file formats
 
@@ -400,7 +400,7 @@ SKILL.md files reference Salesforce org resources (flows, apex classes) that may
 Check which SKILL.md targets exist in the org:
 
 ```bash
-agentforce-md discover --project-root my-agent -o MyOrg
+~/.claude/agentforce-md/bin/agentforce-md discover --project-root my-agent -o MyOrg
 ```
 
 Outputs a table of targets with found/missing status. Exit code 1 if any are missing.
@@ -411,10 +411,10 @@ Generate stub metadata for missing targets:
 
 ```bash
 # Discover + scaffold missing targets
-agentforce-md scaffold --project-root my-agent -o MyOrg
+~/.claude/agentforce-md/bin/agentforce-md scaffold --project-root my-agent -o MyOrg
 
 # Scaffold all targets without checking the org
-agentforce-md scaffold --project-root my-agent -o MyOrg --skip-discover
+~/.claude/agentforce-md/bin/agentforce-md scaffold --project-root my-agent -o MyOrg --skip-discover
 ```
 
 Creates Flow XML (`.flow-meta.xml`) and Apex class (`.cls` + `.cls-meta.xml`) stubs with matching input/output variables from SKILL.md definitions. Review the stubs, fill in business logic, and deploy with `sf project deploy start`.
@@ -424,13 +424,13 @@ Creates Flow XML (`.flow-meta.xml`) and Apex class (`.cls` + `.cls-meta.xml`) st
 Execute a single action against a live org:
 
 ```bash
-agentforce-md run \
+~/.claude/agentforce-md/bin/agentforce-md run \
   --skill my-agent/.claude/skills/check-order-status/SKILL.md \
   -o MyOrg \
   --input '{"order_number":"12345"}'
 
 # Dry run — show invocation plan without executing
-agentforce-md run \
+~/.claude/agentforce-md/bin/agentforce-md run \
   --skill my-agent/.claude/skills/check-order-status/SKILL.md \
   -o MyOrg \
   --input '{"order_number":"12345"}' \
@@ -442,14 +442,14 @@ Invokes the flow or apex action via REST API and returns the output values.
 ## CLI reference
 
 ```
-agentforce-md setup     -o ORG
-agentforce-md convert   --project-root DIR --agent-name NAME [--agent-type TYPE] [--default-agent-user USER] [--output-dir DIR] [--strict]
-agentforce-md deploy    --api-name NAME -o ORG [--dry-run] [--activate] [--skip-retrieve]
-agentforce-md preview   --api-name NAME -o ORG --client-app APP
-agentforce-md init      --template TEMPLATE [--output-dir DIR]
-agentforce-md discover  --project-root DIR -o ORG
-agentforce-md scaffold  --project-root DIR -o ORG [--output-dir DIR] [--skip-discover]
-agentforce-md run       --skill SKILL_PATH -o ORG [--input JSON] [--dry-run]
+~/.claude/agentforce-md/bin/agentforce-md setup     -o ORG
+~/.claude/agentforce-md/bin/agentforce-md convert   --project-root DIR --agent-name NAME [--agent-type TYPE] [--default-agent-user USER] [--output-dir DIR] [--strict]
+~/.claude/agentforce-md/bin/agentforce-md deploy    --api-name NAME -o ORG [--dry-run] [--activate] [--skip-retrieve]
+~/.claude/agentforce-md/bin/agentforce-md preview   --api-name NAME -o ORG --client-app APP
+~/.claude/agentforce-md/bin/agentforce-md init      --template TEMPLATE [--output-dir DIR]
+~/.claude/agentforce-md/bin/agentforce-md discover  --project-root DIR -o ORG
+~/.claude/agentforce-md/bin/agentforce-md scaffold  --project-root DIR -o ORG [--output-dir DIR] [--skip-discover]
+~/.claude/agentforce-md/bin/agentforce-md run       --skill SKILL_PATH -o ORG [--input JSON] [--dry-run]
 ```
 
 | Command | Description |
