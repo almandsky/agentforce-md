@@ -3,11 +3,11 @@
 # agentforce-md Installer for Claude Code
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/sky-chen/agentforce-md/main/tools/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/almandsky/agentforce-md/main/tools/install.sh | bash
 # ============================================================================
 set -euo pipefail
 
-GITHUB_RAW="https://raw.githubusercontent.com/sky-chen/agentforce-md/main"
+GITHUB_RAW="https://raw.githubusercontent.com/almandsky/agentforce-md/main"
 INSTALL_PY_URL="${GITHUB_RAW}/tools/install.py"
 MIN_PYTHON_MAJOR=3
 MIN_PYTHON_MINOR=10

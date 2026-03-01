@@ -3,7 +3,7 @@
 agentforce-md Installer for Claude Code
 
 Usage:
-    curl -sSL https://raw.githubusercontent.com/sky-chen/agentforce-md/main/tools/install.py | python3
+    curl -sSL https://raw.githubusercontent.com/almandsky/agentforce-md/main/tools/install.py | python3
 
     # Or with options:
     python3 install.py                # Install
@@ -42,7 +42,7 @@ from typing import Any, Dict, List, Optional
 INSTALLER_VERSION = "0.1.0"
 
 # GitHub repository
-GITHUB_OWNER = "sky-chen"
+GITHUB_OWNER = "almandsky"
 GITHUB_REPO = "agentforce-md"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
 GITHUB_RAW_URL = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main"
