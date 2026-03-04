@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>agentforce-md — Claude Code → Agentforce Agent Script</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+  <h1><span>agentforce</span>-md</h1>
+  <p class="tagline">Convert Claude Code markdown to Salesforce Agentforce Agent Script</p>
+</header>
+
+<main>
+
+  <section class="install-section">
+    <h2>Install</h2>
+    <div class="install-box">
+      <code id="install-cmd">curl -sSL https://agentforce-md.herokuapp.com/install.sh | bash</code>
+      <button class="copy-btn" onclick="copyInstall()">Copy</button>
+    </div>
+  </section>
+
+  <section class="prereqs">
+    <h2>Prerequisites</h2>
+    <ul>
+      <li>Python 3.10+ &mdash; <code>python3 --version</code></li>
+      <li>Claude Code installed &mdash; <code>~/.claude/</code> must exist</li>
+      <li>Salesforce CLI &mdash; optional &mdash; <code>sf --version</code></li>
+    </ul>
+  </section>
+
+  <section class="skills">
+    <h2>Skills</h2>
+    <div class="card-grid">
+      <div class="card">
+        <h3>/agentforce-convert</h3>
+        <p>Full round-trip: markdown &rarr; Agent Script &rarr; deploy to your org</p>
+      </div>
+      <div class="card">
+        <h3>/agentforce-discover</h3>
+        <p>Check which SKILL.md targets (Flows, Apex, Retrievers) exist in your org</p>
+      </div>
+      <div class="card">
+        <h3>/agentforce-scaffold</h3>
+        <p>Generate Flow / Apex stubs for targets that are missing from the org</p>
+      </div>
+      <div class="card">
+        <h3>/agentforce-run</h3>
+        <p>Execute a SKILL.md action against a live org via REST API</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="usage">
+    <h2>Usage after install</h2>
+    <pre><code># Open Claude Code in any project and type:
+/agentforce-convert
+
+# Or run the CLI directly:
+~/.claude/agentforce-md/bin/agentforce-md convert \
+  --project-root . --agent-name MyAgent</code></pre>
+  </section>
+
+</main>
+
+<footer>
+  <a href="https://github.com/almandsky/agentforce-md">GitHub</a>
+  <span class="version">v0.1.0</span>
+</footer>
+
+<script>
+  function copyInstall() {
+    const cmd = document.getElementById('install-cmd').textContent;
+    navigator.clipboard.writeText(cmd).then(() => {
+      const btn = document.querySelector('.copy-btn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+    });
+  }
+</script>
+
+</body>
+</html>
