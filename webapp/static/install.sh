@@ -3,11 +3,11 @@
 # agentforce-md Installer for Claude Code
 #
 # Usage:
-#   curl -sSL https://agentforce-md.herokuapp.com/install.sh | bash
+#   curl -sSL https://agentforce-md-94d954cecae7.herokuapp.com/install.sh | bash
 # ============================================================================
 set -euo pipefail
 
-INSTALL_PY_URL="https://agentforce-md.herokuapp.com/install.py"
+INSTALL_PY_URL="https://agentforce-md-94d954cecae7.herokuapp.com/install.py"
 MIN_PYTHON_MAJOR=3
 MIN_PYTHON_MINOR=10
 
