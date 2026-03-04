@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>agentforce-md — Claude Code → Agentforce Agent Script</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+  <h1><span>agentforce</span>-md</h1>
+  <p class="tagline">Convert Claude Code markdown to Salesforce Agentforce Agent Script</p>
+</header>
+
+<main>
+
+  <!-- Concept -->
+  <section class="concept">
+    <p>
+      <strong>agentforce-md</strong> lets you define a Salesforce Agentforce AI agent using the same
+      markdown files Claude Code already reads &mdash; <code>CLAUDE.md</code> for agent config and
+      <code>.claude/agents/*.md</code> for topics and actions. A single slash command converts
+      those files into a deployable <code>.agent</code> bundle and pushes it to your org.
+    </p>
+    <p class="concept-sub">
+      No hand-editing XML. No switching tools. Write markdown, run one command, get a live agent.
+    </p>
+  </section>
+
+  <!-- How it works -->
+  <section>
+    <h2>How it works</h2>
+    <ol class="steps">
+      <li>
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <strong>Write your agent in markdown</strong>
+          <p>Describe agent behaviour in <code>CLAUDE.md</code>. Add sub-agents under
+          <code>.claude/agents/*.md</code>. Use YAML frontmatter to declare variables,
+          action bindings, and routing guards.</p>
+          <pre class="mini-code">your-project/
+  CLAUDE.md                ← agent config + variables
+  .claude/
+    agents/
+      order-support.md     ← topic: actions + routing
+      general-faq.md</pre>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <strong>Run <code>/agentforce-convert</code> in Claude Code</strong>
+          <p>The skill reads your markdown, resolves variable bindings, and generates a complete
+          <code>.agent</code> bundle in the <code>agents/</code> directory. Use
+          <code>/agentforce-discover</code> first to check which Flows and Apex classes
+          already exist in your org.</p>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <strong>Deploy to your Salesforce org</strong>
+          <p>The skill calls <code>sf agent deploy</code> to push the bundle. If referenced
+          Flows or Apex classes are missing, use <code>/agentforce-scaffold</code> to generate
+          stubs first.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- Install -->
+  <section>
+    <h2>Install</h2>
+    <div class="install-box" onclick="copyInstall()" title="Click to copy">
+      <code id="install-cmd">curl -sSL {{ base_url }}/install.sh | bash</code>
+      <button class="copy-btn" id="copy-btn" onclick="event.stopPropagation(); copyInstall()">Copy</button>
+    </div>
+    <p class="install-note">
+      Installs to <code>~/.claude/agentforce-md/</code> and registers skills in Claude Code.
+      To update later: <code>python3 ~/.claude/agentforce-md-install.py --update</code>
+    </p>
+  </section>
+
+  <!-- Prerequisites -->
+  <section class="prereqs">
+    <h2>Prerequisites</h2>
+    <ul>
+      <li>
+        Python 3.10+ &mdash; <code>python3 --version</code>
+      </li>
+      <li>
+        Claude Code installed &mdash; <code>~/.claude/</code> must exist &mdash;
+        <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener">install guide &nearr;</a>
+      </li>
+      <li>
+        Salesforce CLI &mdash; optional, required for deploy &mdash; <code>sf --version</code>
+      </li>
+    </ul>
+  </section>
+
+  <!-- Skills -->
+  <section class="skills">
+    <h2>Skills</h2>
+    <div class="card-grid">
+      <div class="card">
+        <h3>/agentforce-convert</h3>
+        <p>Parse your project&rsquo;s markdown files and generate a deployable Agent Script
+        bundle. Optionally deploy to your org in the same step.</p>
+        <div class="card-tag">start here</div>
+      </div>
+      <div class="card">
+        <h3>/agentforce-discover</h3>
+        <p>Inspect a Salesforce org and report which Flows, Apex classes, and Retrievers your
+        SKILL.md files reference &mdash; showing what&rsquo;s deployed vs. what&rsquo;s missing.</p>
+        <div class="card-tag">audit org first</div>
+      </div>
+      <div class="card">
+        <h3>/agentforce-scaffold</h3>
+        <p>Generate stub Flow XML and Apex class files for targets that don&rsquo;t yet exist
+        in the org, so you have a starting point to build from.</p>
+        <div class="card-tag">create missing stubs</div>
+      </div>
+      <div class="card">
+        <h3>/agentforce-run</h3>
+        <p>Execute a single SKILL.md action against a live org via REST API &mdash; useful for
+        testing individual actions without going through the full agent.</p>
+        <div class="card-tag">test in isolation</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Recommended workflow -->
+  <section class="workflow">
+    <h2>Recommended workflow</h2>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <span class="flow-label">Write</span>
+        <span class="flow-desc">CLAUDE.md + agents/*.md</span>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <span class="flow-label">Discover</span>
+        <span class="flow-desc">/agentforce-discover</span>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <span class="flow-label">Scaffold</span>
+        <span class="flow-desc">/agentforce-scaffold</span>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step">
+        <span class="flow-label">Convert</span>
+        <span class="flow-desc">/agentforce-convert</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Usage -->
+  <section class="usage">
+    <h2>Usage after install</h2>
+    <pre><code># Open Claude Code in any Salesforce project and type:
+/agentforce-discover          # see what's in your org
+/agentforce-scaffold          # generate missing Flow / Apex stubs
+/agentforce-convert           # convert markdown → .agent → deploy
+
+# Or call the CLI directly (no Claude Code required):
+~/.claude/agentforce-md/bin/agentforce-md convert \
+  --project-root . --agent-name MyAgent --org MyOrg</code></pre>
+  </section>
+
+</main>
+
+<footer>
+  <a href="https://github.com/almandsky/agentforce-md" target="_blank" rel="noopener">GitHub</a>
+  <span class="version">v0.1.0</span>
+</footer>
+
+<script>
+  function copyInstall() {
+    const cmd = document.getElementById('install-cmd').textContent.trim();
+    const btn = document.getElementById('copy-btn');
+    navigator.clipboard.writeText(cmd).then(() => {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = 'Copy';
+        btn.classList.remove('copied');
+      }, 2000);
+    }).catch(() => {
+      // Fallback for browsers without clipboard API
+      const ta = document.createElement('textarea');
+      ta.value = cmd;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = 'Copy';
+        btn.classList.remove('copied');
+      }, 2000);
+    });
+  }
+</script>
+
+</body>
+</html>

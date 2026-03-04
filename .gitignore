@@ -8,3 +8,5 @@ force-app/
 __pycache__/
 *.pyc
 *.pyo
+.sfdx/
+.vscode/
