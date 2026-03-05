@@ -9,6 +9,7 @@ from typing import Any
 from ..ir.models import (
     ActionDefinition,
     ActionInvocation,
+    AfterReasoningDirective,
     InstructionMode,
     PostActionBranch,
     ReasoningBlock,
@@ -54,6 +55,7 @@ def parse_subagent(path: Path) -> Topic:
     ag = frontmatter.get("agentforce", {}) or {}
     topic_label = ag.get("label")
     topic_available_when = ag.get("available_when")
+    after_reasoning_directives = _parse_after_reasoning(ag.get("after_reasoning"))
 
     # Parse tools
     tools = _parse_tools(frontmatter.get("tools", ""))
@@ -141,6 +143,7 @@ def parse_subagent(path: Path) -> Topic:
             instruction_lines=all_lines,
             action_invocations=action_invocations,
         ),
+        after_reasoning_directives=after_reasoning_directives,
         label=topic_label,
         available_when=topic_available_when,
     )
@@ -158,6 +161,53 @@ def _parse_tools(tools_value: Any) -> list[str]:
     if isinstance(tools_value, str):
         return [t.strip() for t in tools_value.split(",") if t.strip()]
     return []
+
+
+def _parse_after_reasoning(raw: Any) -> list[AfterReasoningDirective]:
+    """Parse the agentforce.after_reasoning list into AfterReasoningDirective objects.
+
+    Each list entry may have:
+      - ``if``: guard condition string (optional)
+      - ``run``: tool/action name (optional; converted to snake_case @actions ref)
+      - ``with``: dict of param → value bindings (only meaningful with ``run``)
+      - ``set``: dict of @variables.x → @outputs.y (only meaningful with ``run``)
+      - ``transition_to``: kebab-case topic name (optional; converted to snake_case)
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+
+    directives = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+
+        condition = str(entry["if"]) if "if" in entry else None
+
+        run_ref = None
+        with_bindings: dict[str, str] = {}
+        set_bindings: dict[str, str] = {}
+        if "run" in entry:
+            run_ref = f"@actions.{tool_name_to_snake(str(entry['run']))}"
+            raw_with = entry.get("with", {}) or {}
+            if isinstance(raw_with, dict):
+                with_bindings = {k: str(v) for k, v in raw_with.items()}
+            raw_set = entry.get("set", {}) or {}
+            if isinstance(raw_set, dict):
+                set_bindings = {k: str(v) for k, v in raw_set.items()}
+
+        transition_to = None
+        if "transition_to" in entry:
+            transition_to = kebab_to_snake(str(entry["transition_to"]))
+
+        directives.append(AfterReasoningDirective(
+            condition=condition,
+            run=run_ref,
+            with_bindings=with_bindings,
+            set_bindings=set_bindings,
+            transition_to=transition_to,
+        ))
+
+    return directives
 
 
 def discover_subagents(project_root: Path) -> list[Path]:

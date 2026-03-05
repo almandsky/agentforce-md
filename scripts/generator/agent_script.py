@@ -7,6 +7,7 @@ import logging
 from ..ir.models import (
     ActionDefinition,
     ActionInvocation,
+    AfterReasoningDirective,
     AgentDefinition,
     InstructionMode,
     PostActionBranch,
@@ -200,6 +201,10 @@ class AgentScriptGenerator:
         # Reasoning block
         lines.extend(self._render_reasoning(reasoning, indent_level=1))
 
+        # After-reasoning block
+        if topic.after_reasoning_directives:
+            lines.extend(self._render_after_reasoning(topic.after_reasoning_directives, indent_level=1))
+
         return "\n".join(lines)
 
     def _render_action_definition(self, ad: ActionDefinition, indent_level: int) -> list[str]:
@@ -314,6 +319,52 @@ class AgentScriptGenerator:
         for branch in inv.post_branches:
             lines.append(f"{inner}if {branch.condition}:")
             lines.append(f"{deeper}transition to @topic.{branch.transition_to}")
+
+        return lines
+
+
+    def _render_after_reasoning(
+        self, directives: list[AfterReasoningDirective], indent_level: int
+    ) -> list[str]:
+        """Render an after_reasoning block using directive syntax.
+
+        Corresponds to the Claude Code ``SubagentStop`` hook: runs after the topic's
+        LLM has responded, mirroring when a sub-agent finishes its turn.
+
+        Directive syntax differs from reasoning.actions name-binding syntax:
+        - ``run @actions.foo`` (not ``name: @actions.foo``)
+        - ``with param=value`` (no spaces around ``=``)
+        - ``set @variables.x = @outputs.y`` (spaces around ``=``)
+        - ``transition to @topic.y``
+        """
+        indent = INDENT * indent_level
+        inner = INDENT * (indent_level + 1)
+        deep = INDENT * (indent_level + 2)
+        deeper = INDENT * (indent_level + 3)
+
+        lines = [f"{indent}after_reasoning:"]
+
+        for i, directive in enumerate(directives):
+            if i > 0:
+                lines.append("")  # blank line between directives
+
+            if directive.condition:
+                lines.append(f"{inner}if {directive.condition}:")
+                body_indent = deep
+                arg_indent = deeper
+            else:
+                body_indent = inner
+                arg_indent = deep
+
+            if directive.run:
+                lines.append(f"{body_indent}run {directive.run}")
+                for param, value in directive.with_bindings.items():
+                    lines.append(f"{arg_indent}with {param}={value}")
+                for var_ref, output_ref in directive.set_bindings.items():
+                    lines.append(f"{arg_indent}set {var_ref} = {output_ref}")
+
+            if directive.transition_to:
+                lines.append(f"{body_indent}transition to @topic.{directive.transition_to}")
 
         return lines
 

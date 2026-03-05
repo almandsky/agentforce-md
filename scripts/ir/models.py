@@ -124,11 +124,36 @@ class ReasoningBlock:
 
 
 @dataclass
+class AfterReasoningDirective:
+    """One directive inside an after_reasoning block.
+
+    Agent Script analog of the Claude Code ``SubagentStop`` hook: a sub-agent maps to a
+    topic, so ``SubagentStop`` (sub-agent finishes its turn) maps to ``after_reasoning``
+    (runs after the topic's LLM has responded for that turn).
+
+    Maps from ``agentforce.after_reasoning`` list entries in sub-agent frontmatter.
+
+    Each entry may have:
+    - condition: ``if`` guard (None = unconditional)
+    - run: action ref, e.g. ``@actions.create_case`` (None = bare transition)
+    - with_bindings: param→value for the run (no spaces around ``=`` in output)
+    - set_bindings: @variables.x → @outputs.y (spaces around ``=`` in output)
+    - transition_to: topic name in snake_case (None = no transition)
+    """
+    condition: Optional[str] = None
+    run: Optional[str] = None
+    with_bindings: dict[str, str] = field(default_factory=dict)
+    set_bindings: dict[str, str] = field(default_factory=dict)
+    transition_to: Optional[str] = None
+
+
+@dataclass
 class Topic:
     name: str  # snake_case developer name
     description: str
     action_definitions: list[ActionDefinition] = field(default_factory=list)
     reasoning: ReasoningBlock = field(default_factory=ReasoningBlock)
+    after_reasoning_directives: list[AfterReasoningDirective] = field(default_factory=list)
     label: Optional[str] = None
     available_when: Optional[str] = None  # guard for start_agent transition
 

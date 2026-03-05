@@ -10,6 +10,22 @@ These two systems look superficially similar but solve fundamentally different p
 This document maps the overlap, identifies what cannot be converted, and documents the
 patterns used by the converter.
 
+### The key structural parallel
+
+A **Claude Code sub-agent** maps to an **Agentforce topic** — same concept, same scope.
+Because of this, the correct analog for Agent Script's per-topic lifecycle blocks is at
+the **sub-agent level**, not the agent level:
+
+| Claude Code | Agentforce Agent Script | Scope |
+|---|---|---|
+| Sub-agent body (tools, reasoning) | `topic … reasoning:` block | per sub-agent / topic |
+| `SubagentStop` — sub-agent finishes | `topic … after_reasoning:` block | per sub-agent / topic |
+| `Stop` — full agent session ends | *(no equivalent)* | agent level |
+
+`SubagentStop` is therefore the correct hook analog for `after_reasoning`, not `Stop`.
+`Stop` fires at session end; `after_reasoning` fires after each topic turn — a finer grain
+that matches the sub-agent lifecycle, not the session lifecycle.
+
 ---
 
 ## Agent Script Lifecycle Blocks: Supported vs Not
@@ -176,15 +192,15 @@ Claude Code **development** session.
 
 **Relevant event types:**
 
-| Event | When it fires |
-|---|---|
-| `UserPromptSubmit` | User sends a message |
-| `PreToolCall` | Before Claude calls any tool |
-| `PostToolCall` | After a tool returns |
-| `Stop` | Claude stops generating a response |
-| `SubagentStop` | A sub-agent finishes |
-| `PreCompact` | Before context compaction |
-| `Notification` | When a notification is sent |
+| Event | When it fires | Scope |
+|---|---|---|
+| `UserPromptSubmit` | User sends a message | agent |
+| `PreToolCall` | Before Claude calls any tool | agent |
+| `PostToolCall` | After a tool returns | agent |
+| `Stop` | Full agent session ends | agent |
+| `SubagentStop` | A sub-agent finishes its turn | **sub-agent** |
+| `PreCompact` | Before context compaction | agent |
+| `Notification` | When a notification is sent | agent |
 
 **Key properties:**
 - Run on the **developer's machine** at development time, not at agent runtime.
@@ -195,11 +211,11 @@ Claude Code **development** session.
 
 ### Agent Script (runtime, in org)
 
-| Block | Trigger | Mechanism |
-|---|---|---|
-| `reasoning` (pipe mode `\|`) | LLM turn | Pure `\|` instruction lines + named action invocations |
-| `reasoning` (arrow mode `->`) | LLM turn | Mixed: `set`, `run`, `if`, and `\|` instruction lines interleaved |
-| `after_reasoning` | After LLM responds | Directives: `if`, `run`, `set`, `transition to` |
+| Block | Scope | Trigger | Mechanism |
+|---|---|---|---|
+| `reasoning` (pipe mode `\|`) | topic | LLM turn | Pure `\|` instruction lines + named action invocations |
+| `reasoning` (arrow mode `->`) | topic | LLM turn | Mixed: `set`, `run`, `if`, and `\|` instruction lines interleaved |
+| `after_reasoning` | topic | After LLM responds | Directives: `if`, `run`, `set`, `transition to` |
 
 Both run on the **Salesforce platform** at runtime inside the deployed agent.
 
@@ -220,14 +236,15 @@ LLM is told, and variable state is updated before the LLM generates its reply.
 | **Post-tool hook (any tool)** | `PostToolCall` fires for all tools | `set`/`if`/`transition` per specific action (reasoning); or `after_reasoning` block |
 | **Can block execution** | Yes — `{"decision": "block"}` | `available when` on each invocation |
 | **Can transform inputs** | Yes — shell can mutate and re-emit | No — bind from declared sources only |
-| **After-response hook** | `Stop` event | `after_reasoning` block |
+| **Sub-agent finishes** (`SubagentStop`) | `SubagentStop` event | `after_reasoning` block (per-topic) |
+| **Full session ends** (`Stop`) | `Stop` event | *(no equivalent — session end has no runtime hook)* |
 | **Deployed to org** | No | Yes |
 
 ---
 
 ## What CAN Be Converted
 
-### 1. Per-action bindings — `reasoning` block (already implemented)
+### 1. Per-action bindings — `reasoning` block (implemented)
 
 | Claude Code hook pattern | Agent Script equivalent | agentforce-md input |
 |---|---|---|
@@ -237,16 +254,19 @@ LLM is told, and variable state is updated before the LLM generates its reply.
 | `PostToolCall` — capture output from specific tool | `set @variables.X = @outputs.Y` | `bindings.ToolName.set` |
 | `PostToolCall` — route based on specific tool output | `if @variables.X: transition to @topic.Y` | `bindings.ToolName.after` |
 
-### 2. `Stop` → `after_reasoning` (to be implemented)
+### 2. `SubagentStop` → `after_reasoning` (implemented)
 
-The `Stop` hook (run something after the agent finishes its response) maps to
-`after_reasoning`. Typical patterns: audit logging, deferred action execution, conditional
-routing to the next topic after the LLM has responded.
+`SubagentStop` fires when a sub-agent finishes its turn. Because a **sub-agent = topic**,
+the direct Agent Script equivalent is `after_reasoning` — it runs after the topic's LLM
+has responded, at exactly the point where the sub-agent "stops" for that turn.
+
+Typical patterns: audit logging, deferred action execution, conditional routing to the
+next topic after the LLM has responded.
 
 ```
 after_reasoning:
     if @variables.caseDescriptionCollected:
-        run @actions.CreateCase
+        run @actions.create_case
             with subject=@variables.caseSubject
             with description=@variables.caseDescription
             set @variables.caseId = @outputs.caseId
@@ -255,7 +275,7 @@ after_reasoning:
         transition to @topic.case_confirmation
 ```
 
-**Proposed agentforce-md input** (sub-agent `.md` frontmatter):
+**agentforce-md input** (sub-agent `.md` frontmatter):
 
 ```yaml
 agentforce:
@@ -292,8 +312,12 @@ guard — `available when` is per-action-invocation only.
 **Workaround:** Use `agentforce.available_when` to block topic entry entirely, and add
 `available when @variables.isReady==True` to each action invocation inside the topic.
 
-### `UserPromptSubmit`, `SubagentStop`, `PreCompact`, `Notification`, etc.
-These are development-session events with no runtime equivalent. **Not convertible.**
+### `Stop` — full session end
+`Stop` fires when the entire agent session ends. `after_reasoning` fires per topic turn,
+not at session end — the granularities don't match. **Not convertible.**
+
+### `UserPromptSubmit`, `PreCompact`, `Notification`
+Development-session events with no runtime equivalent. **Not convertible.**
 
 ---
 
@@ -306,31 +330,29 @@ These are development-session events with no runtime equivalent. **Not convertib
 | Capture an action's output into a variable | `agentforce.bindings.ToolName.set` |
 | Route to another topic based on action output | `agentforce.bindings.ToolName.after` |
 | Block routing to topic until condition is true | `agentforce.available_when` |
-| Run action / route conditionally after LLM responds | `agentforce.after_reasoning` (to implement) |
+| Run action / route conditionally after sub-agent turn (`SubagentStop`) | `agentforce.after_reasoning` (implemented) |
 | Run shell command / HTTP call as hook | **Not convertible** |
 | Mutate tool inputs | **Not convertible** |
 | Block ALL actions with one guard | **Partial** — `available_when` on each invocation |
-| React to `UserPromptSubmit` / `Stop` / `PreCompact` | **Not convertible** — dev-session events |
+| React to `Stop` (session end) / `UserPromptSubmit` / `PreCompact` | **Not convertible** — dev-session events or wrong granularity |
 
 ---
 
-## Implementation Plan for `after_reasoning`
+## Implementation Notes for `after_reasoning`
 
-1. **Parse `after_reasoning`** from sub-agent `.md` frontmatter under `agentforce:`
-   - Each entry: optional `if` condition, optional `run` (tool name) with `with`/`set`,
-     or a bare `transition_to`
-   - Validate that each `run` tool has a SKILL.md with `agentforce: target`
+Implemented across three layers:
 
-2. **Extend IR** — Add `after_reasoning_directives: list[AfterReasoningDirective]` to
-   `Topic` dataclass, where `AfterReasoningDirective` holds: `condition`, `run` (action
-   name), `with_bindings`, `set_bindings`, `transition_to`
+1. **IR** (`scripts/ir/models.py`) — `AfterReasoningDirective` dataclass holds:
+   `condition`, `run` (action ref), `with_bindings`, `set_bindings`, `transition_to`.
+   `Topic` has `after_reasoning_directives: list[AfterReasoningDirective]`.
 
-3. **Extend generator** — Render `after_reasoning:` block after `reasoning:` using
-   directive syntax:
-   - `if @variables.X condition:` (not `available when`)
-   - `    run @actions.Foo` with `    with param=@variables.X` (no spaces around `=`)
-   - `    set @variables.X = @outputs.Y`
-   - `transition to @topic.Y` (top-level directive, not under `run`)
+2. **Parser** (`scripts/parser/subagent.py`) — `_parse_after_reasoning()` reads
+   `agentforce.after_reasoning` list from sub-agent frontmatter. Converts `run:` tool
+   names via `tool_name_to_snake`, `transition_to:` via `kebab_to_snake`.
 
-4. **Tests** — Parser tests for frontmatter, generator tests verifying directive syntax
-   (not reasoning-block syntax), e2e test with a topic using `after_reasoning`
+3. **Generator** (`scripts/generator/agent_script.py`) — `_render_after_reasoning()`
+   emits the block after `reasoning:` using **directive syntax**:
+   - `run @actions.foo` (not `name: @actions.foo`)
+   - `with param=value` (no spaces around `=`)
+   - `set @variables.x = @outputs.y` (spaces around `=`)
+   - blank lines between directives

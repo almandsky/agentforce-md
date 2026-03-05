@@ -138,6 +138,16 @@ agentforce:
       after:                                    # conditional transition after action
         if: "@variables.isVerified"
         transition_to: "case-management"        # kebab-case topic name
+  after_reasoning:                              # optional: directives that run after each LLM turn
+    - if: "@variables.caseDescriptionCollected" # condition (omit for unconditional)
+      run: CreateCase                           # tool name (becomes @actions.create_case)
+      with:
+        subject: "@variables.caseSubject"
+        description: "@variables.caseDescription"
+      set:
+        "@variables.caseId": "@outputs.caseId"
+    - if: "@variables.caseId != \"\""
+      transition_to: "case-confirmation"        # kebab-case topic name
 ---
 <Scope: what this topic does>
 
@@ -152,6 +162,7 @@ The `agentforce:` section is optional. Without it, topics render with no label, 
 - `after` — Conditional transition: if a variable is truthy after the action, route to another topic. Can be a single `{if, transition_to}` or a list of them.
 - `available_when` — Prevents the LLM from routing to this topic until the condition is met. Applied to the `start_agent` transition for this topic.
 - `label` — Human-readable name shown in the Agentforce UI.
+- `after_reasoning` — Directives that run **after the LLM has responded** for each turn of this topic. See below.
 
 **Multiple after branches** (list form):
 ```yaml
@@ -163,6 +174,58 @@ agentforce:
           transition_to: "escalation"
         - if: "@variables.resolved"
           transition_to: "completion"
+```
+
+#### When to generate `after_reasoning`
+
+`after_reasoning` is the Agent Script equivalent of a Claude Code `SubagentStop` hook — it runs deterministically **after the topic's LLM has produced its response** for that turn. Because a topic in Agent Script corresponds to a sub-agent in Claude Code, this is exactly the point when a sub-agent "stops" for its turn.
+
+**Generate `after_reasoning` when the business need involves any of these patterns:**
+
+| Business need | Pattern |
+|---|---|
+| Create a record only after the LLM has collected all required fields | `if @variables.allFieldsCollected: run @actions.CreateRecord` |
+| Route to the next topic once a condition is satisfied | `if @variables.X != "": transition to @topic.next_topic` |
+| Audit-log every response from this topic | unconditional `run @actions.LogAuditEvent` (no `if`) |
+| Escalate after too many turns | `if @variables.numTurns > 5: transition to @topic.escalate` |
+| Chain actions: run an action, capture output, then conditionally route | multiple `after_reasoning` entries in sequence |
+
+**Key behaviour:**
+- Runs **after** the LLM's response is already sent to the user — cannot change what the LLM said.
+- Each `after_reasoning` entry can have an optional `if` guard, a `run` (with `with`/`set`), and/or a `transition_to`.
+- Transitions here take effect on the **next turn** (the current turn's response has already gone out).
+- Use multiple entries (evaluated in order) for multi-step post-turn logic.
+
+**`after_reasoning` entry fields:**
+- `if` — Optional condition. Omit for an unconditional directive.
+- `run` — Tool/action name (camelCase or PascalCase; converted to snake_case `@actions.X` in output).
+- `with` — Input bindings for `run` (no spaces around `=` in output).
+- `set` — Output captures: `"@variables.X": "@outputs.Y"` (spaces around `=` in output).
+- `transition_to` — Kebab-case topic name to route to after this turn.
+
+**Example — create case after data collection, then route to confirmation:**
+```yaml
+agentforce:
+  after_reasoning:
+    - if: "@variables.caseDescriptionCollected"
+      run: CreateCase
+      with:
+        subject: "@variables.caseSubject"
+        description: "@variables.caseDescription"
+      set:
+        "@variables.caseId": "@outputs.caseId"
+    - if: "@variables.caseId != \"\""
+      transition_to: "case-confirmation"
+```
+
+**Example — unconditional audit logging on every turn:**
+```yaml
+agentforce:
+  after_reasoning:
+    - run: LogAuditEvent
+      with:
+        userId: "@variables.userId"
+        topicName: "order_support"
 ```
 
 **SKILL.md files** (optional, `.claude/skills/<tool-name>/SKILL.md`) — for tools that have known Salesforce targets:
