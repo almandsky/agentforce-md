@@ -232,6 +232,142 @@ Route.
     assert inv.post_branches[1].transition_to == "escalation"
 
 
+def test_after_reasoning_run_with_condition(tmp_path: Path):
+    """after_reasoning with conditional run + set parses correctly."""
+    md = tmp_path / "case.md"
+    md.write_text("""---
+name: case-creation
+description: Create cases
+agentforce:
+  after_reasoning:
+    - if: "@variables.caseDescriptionCollected"
+      run: CreateCase
+      with:
+        subject: "@variables.caseSubject"
+        description: "@variables.caseDescription"
+      set:
+        "@variables.caseId": "@outputs.caseId"
+---
+Handle case creation.
+""")
+    topic = parse_subagent(md)
+    assert len(topic.after_reasoning_directives) == 1
+    d = topic.after_reasoning_directives[0]
+    assert d.condition == "@variables.caseDescriptionCollected"
+    assert d.run == "@actions.create_case"
+    assert d.with_bindings == {
+        "subject": "@variables.caseSubject",
+        "description": "@variables.caseDescription",
+    }
+    assert d.set_bindings == {"@variables.caseId": "@outputs.caseId"}
+    assert d.transition_to is None
+
+
+def test_after_reasoning_bare_transition(tmp_path: Path):
+    """after_reasoning transition_to with condition and no run."""
+    md = tmp_path / "case.md"
+    md.write_text("""---
+name: case-creation
+description: Create cases
+agentforce:
+  after_reasoning:
+    - if: "@variables.caseId != \\"\\""
+      transition_to: "case-confirmation"
+---
+Handle case creation.
+""")
+    topic = parse_subagent(md)
+    assert len(topic.after_reasoning_directives) == 1
+    d = topic.after_reasoning_directives[0]
+    assert d.condition == '@variables.caseId != ""'
+    assert d.run is None
+    assert d.transition_to == "case_confirmation"
+
+
+def test_after_reasoning_multiple_directives(tmp_path: Path):
+    """Multiple after_reasoning entries all parse in order."""
+    md = tmp_path / "flow.md"
+    md.write_text("""---
+name: multi-flow
+description: Multi-step flow
+agentforce:
+  after_reasoning:
+    - if: "@variables.verified"
+      run: GetHistory
+      with:
+        customer_id: "@variables.customerId"
+      set:
+        "@variables.caseCount": "@outputs.previousCases"
+    - if: "@variables.caseType != \\"\\""
+      transition_to: "case-creation"
+---
+Handle flow.
+""")
+    topic = parse_subagent(md)
+    assert len(topic.after_reasoning_directives) == 2
+
+    d0 = topic.after_reasoning_directives[0]
+    assert d0.condition == "@variables.verified"
+    assert d0.run == "@actions.get_history"
+    assert d0.with_bindings == {"customer_id": "@variables.customerId"}
+    assert d0.set_bindings == {"@variables.caseCount": "@outputs.previousCases"}
+
+    d1 = topic.after_reasoning_directives[1]
+    assert d1.condition == '@variables.caseType != ""'
+    assert d1.run is None
+    assert d1.transition_to == "case_creation"
+
+
+def test_after_reasoning_unconditional_run(tmp_path: Path):
+    """A run without an if condition (unconditional directive)."""
+    md = tmp_path / "logger.md"
+    md.write_text("""---
+name: audit-topic
+description: Audit logging
+agentforce:
+  after_reasoning:
+    - run: LogAuditEvent
+      with:
+        userId: "@variables.userId"
+---
+Audit all turns.
+""")
+    topic = parse_subagent(md)
+    assert len(topic.after_reasoning_directives) == 1
+    d = topic.after_reasoning_directives[0]
+    assert d.condition is None
+    assert d.run == "@actions.log_audit_event"
+    assert d.with_bindings == {"userId": "@variables.userId"}
+
+
+def test_after_reasoning_empty_list(tmp_path: Path):
+    """Empty after_reasoning list produces no directives."""
+    md = tmp_path / "empty.md"
+    md.write_text("""---
+name: simple
+description: Simple
+agentforce:
+  after_reasoning: []
+---
+Do things.
+""")
+    topic = parse_subagent(md)
+    assert topic.after_reasoning_directives == []
+
+
+def test_no_agentforce_section_has_no_after_reasoning(tmp_path: Path):
+    """Without agentforce section, after_reasoning_directives is empty."""
+    md = tmp_path / "plain.md"
+    md.write_text("""---
+name: plain
+description: Plain topic
+---
+Do things.
+""")
+    topic = parse_subagent(md)
+    assert topic.after_reasoning_directives == []
+
+
 def test_subagent_no_agentforce_section(tmp_path: Path):
     """Without agentforce section, topic has no label, no available_when, no bindings."""
     md = tmp_path / "simple.md"

@@ -6,6 +6,7 @@ from scripts.ir.models import (
     ActionInput,
     ActionInvocation,
     ActionOutput,
+    AfterReasoningDirective,
     AgentDefinition,
     ConfigBlock,
     ConnectionBlock,
@@ -487,6 +488,147 @@ def test_full_action_invocation_with_all_features():
     if_pos = topic_section.index("if @variables.isVerified:")
     trans_pos = topic_section.index("transition to @topic.account_mgmt")
     assert desc_pos < avail_pos < with_pos < set_pos < if_pos < trans_pos
+
+
+def test_after_reasoning_conditional_run():
+    """after_reasoning with a conditional run renders directive syntax correctly."""
+    agent = _make_minimal_agent()
+    agent.topics[0].after_reasoning_directives = [
+        AfterReasoningDirective(
+            condition="@variables.caseDescriptionCollected",
+            run="@actions.create_case",
+            with_bindings={
+                "subject": "@variables.caseSubject",
+                "description": "@variables.caseDescription",
+            },
+            set_bindings={"@variables.caseId": "@outputs.caseId"},
+        ),
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+
+    assert "after_reasoning:" in output
+    assert "if @variables.caseDescriptionCollected:" in output
+    assert "run @actions.create_case" in output
+    # Directive syntax: no spaces around = in with
+    assert "with subject=@variables.caseSubject" in output
+    assert "with description=@variables.caseDescription" in output
+    # set uses spaces around =
+    assert "set @variables.caseId = @outputs.caseId" in output
+
+
+def test_after_reasoning_bare_transition():
+    """after_reasoning with a conditional bare transition renders correctly."""
+    agent = _make_minimal_agent()
+    agent.topics[0].after_reasoning_directives = [
+        AfterReasoningDirective(
+            condition='@variables.caseId != ""',
+            transition_to="case_confirmation",
+        ),
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+
+    assert "after_reasoning:" in output
+    assert 'if @variables.caseId != "":' in output
+    assert "transition to @topic.case_confirmation" in output
+    # Should NOT appear as a reasoning-block invocation
+    assert "available when" not in output.split("after_reasoning:")[1]
+
+
+def test_after_reasoning_multiple_directives():
+    """Multiple directives are separated by blank lines."""
+    agent = _make_minimal_agent()
+    agent.topics[0].after_reasoning_directives = [
+        AfterReasoningDirective(
+            condition="@variables.verified",
+            run="@actions.get_history",
+            with_bindings={"customer_id": "@variables.customerId"},
+            set_bindings={"@variables.caseCount": "@outputs.previousCases"},
+        ),
+        AfterReasoningDirective(
+            condition='@variables.caseType != ""',
+            transition_to="case_creation",
+        ),
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+
+    after_section = output.split("after_reasoning:")[1]
+    run_pos = after_section.index("run @actions.get_history")
+    transition_pos = after_section.index("transition to @topic.case_creation")
+    assert run_pos < transition_pos
+
+    # Blank line between directives
+    between = after_section[run_pos:transition_pos]
+    assert "\n\n" in between
+
+
+def test_after_reasoning_unconditional_run():
+    """An unconditional directive (no if) indents one level inside after_reasoning."""
+    agent = _make_minimal_agent()
+    agent.topics[0].after_reasoning_directives = [
+        AfterReasoningDirective(
+            run="@actions.log_audit_event",
+            with_bindings={"userId": "@variables.userId"},
+        ),
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+
+    assert "after_reasoning:" in output
+    assert "run @actions.log_audit_event" in output
+    # No conditional wrapping
+    after_section = output.split("after_reasoning:")[1]
+    assert "if " not in after_section.split("run")[0]
+
+
+def test_after_reasoning_comes_after_reasoning_block():
+    """after_reasoning must appear after the reasoning block in the topic."""
+    agent = _make_minimal_agent()
+    agent.topics[0].after_reasoning_directives = [
+        AfterReasoningDirective(
+            condition="@variables.done",
+            transition_to="done_topic",
+        ),
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+
+    reasoning_pos = output.index("reasoning:")
+    after_pos = output.index("after_reasoning:")
+    assert reasoning_pos < after_pos
+
+
+def test_after_reasoning_uses_directive_not_name_binding_syntax():
+    """Verifies directive syntax (run/with=) not name-binding syntax (name: @actions / with =)."""
+    agent = _make_minimal_agent()
+    agent.topics[0].after_reasoning_directives = [
+        AfterReasoningDirective(
+            condition="@variables.ready",
+            run="@actions.do_thing",
+            with_bindings={"param": "@variables.value"},
+        ),
+    ]
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    after_section = output.split("after_reasoning:")[1]
+
+    # Directive syntax: "run @actions.X" (not "name: @actions.X")
+    assert "run @actions.do_thing" in after_section
+    # No spaces around = in with
+    assert "with param=@variables.value" in after_section
+    # Should NOT use name-binding syntax
+    assert "do_thing: @actions" not in after_section
+    assert "with param = @variables.value" not in after_section
+
+
+def test_no_after_reasoning_block_when_empty():
+    """Topics with no after_reasoning directives should not emit the block."""
+    agent = _make_minimal_agent()
+    gen = AgentScriptGenerator(agent)
+    output = gen.generate()
+    assert "after_reasoning:" not in output
 
 
 def test_four_space_indentation():
