@@ -212,6 +212,27 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+def _ensure_sfdx_project_json() -> None:
+    """Write a minimal sfdx-project.json to the current directory if absent.
+
+    The sf CLI walks up from CWD looking for sfdx-project.json to locate the
+    project root.  Without it, 'sf agent validate/publish authoring-bundle'
+    searches in the wrong directory and fails with "Cannot find an authoring
+    bundle named '...' in the project."
+    """
+    sfdx_path = Path.cwd() / "sfdx-project.json"
+    if sfdx_path.exists():
+        return
+    sfdx_content = {
+        "packageDirectories": [{"path": "force-app/main/default", "default": True}],
+        "namespace": "",
+        "sfdcLoginUrl": "https://login.salesforce.com",
+        "sourceApiVersion": "63.0",
+    }
+    sfdx_path.write_text(json.dumps(sfdx_content, indent=2) + "\n", encoding="utf-8")
+    logging.info("Created %s", sfdx_path)
+
+
 def _cmd_convert(args: argparse.Namespace) -> int:
     if args.agent_type == "AgentforceServiceAgent" and not args.default_agent_user:
         print(
@@ -233,6 +254,7 @@ def _cmd_convert(args: argparse.Namespace) -> int:
         print(f"Generated bundle: {bundle_dir}")
         print(f"  {bundle_dir.name}.agent")
         print(f"  {bundle_dir.name}.bundle-meta.xml")
+        _ensure_sfdx_project_json()
         return 0
     except ValueError as e:
         logging.error("Validation error: %s", e)
