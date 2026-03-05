@@ -29,6 +29,12 @@ def generate_flow_xml(
     Produces a minimal .flow-meta.xml that:
     - Declares input variables matching SKILL.md inputs
     - Declares output variables matching SKILL.md outputs
+    - Merges variables that appear in both inputs and outputs into one
+      bidirectional variable (isInput=true, isOutput=true) to avoid
+      "Duplicate developer name" deploy errors
+    - Uses Active status so flows are immediately callable as invocable actions
+    - Uses type-appropriate XML value elements in the placeholder assignment
+      (booleanValue for boolean, numberValue for number, stringValue otherwise)
     - Has a single Assignment element as placeholder logic
     - Uses API version 63.0
 
@@ -44,33 +50,41 @@ def generate_flow_xml(
     inputs = inputs or []
     outputs = outputs or []
 
+    # Variables that appear in both inputs and outputs — merged into one
+    # bidirectional variable to avoid "Duplicate developer name" deploy errors.
+    input_names = {inp.name for inp in inputs}
+    bidirectional_names = input_names & {out.name for out in outputs}
+
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Flow xmlns="http://soap.sforce.com/2006/04/metadata">',
         f'    <apiVersion>{API_VERSION}</apiVersion>',
         f'    <label>{api_name}</label>',
         f'    <processType>{process_type}</processType>',
-        '    <status>Draft</status>',
+        '    <status>Active</status>',
         '    <interviewLabel>{!$Flow.CurrentDateTime}</interviewLabel>',
     ]
 
-    # Input variables
+    # Input variables — bidirectional ones get isOutput=true too
     for inp in inputs:
         flow_type = _TYPE_MAP.get(inp.input_type, "String")
+        is_output = inp.name in bidirectional_names
         lines.extend([
             '    <variables>',
             f'        <name>{inp.name}</name>',
             f'        <dataType>{flow_type}</dataType>',
             '        <isCollection>false</isCollection>',
             '        <isInput>true</isInput>',
-            '        <isOutput>false</isOutput>',
+            f'        <isOutput>{"true" if is_output else "false"}</isOutput>',
         ])
         if inp.description:
             lines.append(f'        <description>{_escape_xml(inp.description)}</description>')
         lines.append('    </variables>')
 
-    # Output variables
+    # Output-only variables (skip bidirectional — already declared above)
     for out in outputs:
+        if out.name in bidirectional_names:
+            continue
         flow_type = _TYPE_MAP.get(out.output_type, "String")
         lines.extend([
             '    <variables>',
@@ -95,12 +109,11 @@ def generate_flow_xml(
 
     # Assign default values to output variables
     for out in outputs:
-        default = _default_for_type(out.output_type)
         lines.extend([
             '        <assignmentItems>',
             f'            <assignToReference>{out.name}</assignToReference>',
             '            <operator>Assign</operator>',
-            f'            <value><stringValue>{_escape_xml(default)}</stringValue></value>',
+            f'            <value>{_default_value_element(out.output_type)}</value>',
             '        </assignmentItems>',
         ])
 
@@ -131,13 +144,18 @@ def _escape_xml(text: str) -> str:
     )
 
 
-def _default_for_type(type_name: str) -> str:
-    """Return a placeholder default value for an output type."""
-    defaults = {
-        "string": "TODO",
-        "number": "0",
-        "boolean": "false",
-        "date": "2000-01-01",
-        "datetime": "2000-01-01T00:00:00Z",
-    }
-    return defaults.get(type_name, "TODO")
+def _default_value_element(type_name: str) -> str:
+    """Return a type-appropriate XML value element for a placeholder assignment.
+
+    Flow XML requires typed value elements — using <stringValue> for a Boolean
+    variable causes a deploy-time "field integrity exception".
+    """
+    if type_name == "boolean":
+        return "<booleanValue>false</booleanValue>"
+    if type_name == "number":
+        return "<numberValue>0</numberValue>"
+    if type_name == "date":
+        return "<stringValue>2000-01-01</stringValue>"
+    if type_name == "datetime":
+        return "<stringValue>2000-01-01T00:00:00Z</stringValue>"
+    return "<stringValue>TODO</stringValue>"
