@@ -150,15 +150,21 @@ Parse: find `STDM_RESULT:` in `result.logs`, extract the JSON array that follows
 The result is a JSON array of `SessionSummary` objects:
 ```json
 [
-  { "session_id": "...", "start_time": "...", "end_time": "...", "channel": "...", "duration_ms": 12345 }
+  {
+    "session_id": "...", "start_time": "...", "end_time": "...",
+    "channel": "...", "duration_ms": 12345,
+    "end_type": "USER_ENDED"
+  }
 ]
 ```
 
-Note: `end_time` and `duration_ms` may be `null` when the session has no recorded end event — this is a normal STDM data quality gap, not an error.
+- `end_time` and `duration_ms` may be `null` when the session has no recorded end event — this is a normal STDM data quality gap, not an error.
+- `end_type` values: `USER_ENDED`, `AGENT_ENDED`, or `null` (in-progress or not recorded). A `null` `end_type` may indicate an abandoned session.
 
-**How agent filtering works** — `findSessions` resolves the agent via two steps:
-1. SOQL: `SELECT Id FROM GenAiPlannerDefinition WHERE MasterLabel = :agentApiName` — returns one or more planner version IDs (18-char, e.g. `16jWt000000REZxIAO`). Multiple results mean the agent has been redeployed.
-2. ANSI SQL on the participant DMO: `SELECT ssot__AiAgentSessionId__c FROM "ssot__AiAgentSessionParticipant__dlm" WHERE ssot__ParticipantId__c IN (...)`. The service automatically includes both 15-char and 18-char versions of each ID because the DMO stores them inconsistently across orgs.
+**How agent filtering works** — `findSessions` tries two strategies in order:
+
+1. **Direct** (preferred): `ssot__AiAgentApiName__c = agentApiName` on `ssot__AiAgentSessionParticipant__dlm` — no SOQL needed, uses a dedicated DMO field. Resolves in a single Data Cloud query.
+2. **Planner fallback**: If strategy 1 returns no rows, SOQL: `SELECT Id FROM GenAiPlannerDefinition WHERE MasterLabel = :agentApiName` → `ssot__ParticipantId__c IN (...)`. Both 15-char and 18-char ID formats are included (the DMO stores them inconsistently). If both strategies return empty, the query falls back to all sessions in the date range.
 
 **If the debug log shows `Agent not found: <name>`**, no `GenAiPlannerDefinition` matched — verify the agent name with:
 ```bash
@@ -166,7 +172,7 @@ sf data query --query "SELECT Id, MasterLabel, DeveloperName FROM GenAiPlannerDe
 ```
 Use the exact `MasterLabel` value (not `DeveloperName`). `MasterLabel` matches the agent's display name; `DeveloperName` has a version suffix (e.g. `TeslaSupportAgent_v1`).
 
-**If the debug log shows `No participant sessions found for agent: <name>`**, the planners were found but the participant DMO returned no rows — the sessions may predate Data Cloud ingestion. The query automatically falls back to returning all sessions in the date range.
+**If the debug log shows a warning about no sessions for the agent**, both strategies returned empty — the agent may have no sessions in this date range, or Data Cloud ingestion may be delayed. The query falls back to all sessions in the date range.
 
 ### 1.2 Get conversation details
 
@@ -191,6 +197,8 @@ Parse: find `STDM_RESULT:` in `result.logs`, extract the JSON array. Each elemen
   "session_id": "...",
   "start_time": "...", "end_time": "...", "channel": "...",
   "duration_ms": 45000,
+  "end_type": "USER_ENDED",
+  "session_variables": "{...}",
   "turn_count": 3,
   "action_error_count": 1,
   "turns": [
@@ -198,13 +206,15 @@ Parse: find `STDM_RESULT:` in `result.logs`, extract the JSON array. Each elemen
       "interaction_id": "...",
       "topic": "CheckOrderStatus",
       "start_time": "...", "end_time": "...", "duration_ms": 8000,
+      "telemetry_trace_id": "...",
       "messages": [
         { "message_type": "Input",  "text": "Where is my order?", "sent_at": "..." },
         { "message_type": "Output", "text": "I found your order...", "sent_at": "..." }
       ],
       "steps": [
-        { "step_type": "TOPIC_STEP",  "name": "CheckOrderStatus", ... },
-        { "step_type": "LLM_STEP",    "name": "...", "duration_ms": 3200, ... },
+        { "step_type": "TOPIC_STEP",  "name": "CheckOrderStatus" },
+        { "step_type": "LLM_STEP",    "name": "...", "duration_ms": 3200,
+          "generation_id": "abc123", "gateway_request_id": "def456" },
         { "step_type": "ACTION_STEP", "name": "GetOrderDetails",
           "input": "{...}", "output": "{...}", "error": null,
           "pre_vars": "{...}", "post_vars": "{...}", "duration_ms": 1500 }
@@ -214,7 +224,49 @@ Parse: find `STDM_RESULT:` in `result.logs`, extract the JSON array. Each elemen
 }
 ```
 
+Key new fields:
+- `end_type` — how the session ended (`USER_ENDED`, `AGENT_ENDED`, or null)
+- `session_variables` — final variable snapshot for the session (null when absent)
+- `telemetry_trace_id` — distributed tracing ID for this turn (null when absent)
+- `generation_id` / `gateway_request_id` on `LLM_STEP` — pass these step IDs to `getLlmStepDetails()` to retrieve the actual LLM prompt and response (useful for diagnosing LOW instruction adherence)
+
 Treat any `null` field as absent/unknown. The `"NOT_SET"` sentinel is stripped by the service class before returning.
+
+### 1.2b Get LLM prompt/response (optional, for LOW adherence)
+
+When a session shows `TRUST_GUARDRAILS_STEP` with `'value': 'LOW'`, use `getLlmStepDetails()` to retrieve the actual LLM prompt and response for the associated `LLM_STEP` records. Pass the `step_id` values from steps where `step_type == "LLM_STEP"` and `generation_id != null`.
+
+```apex
+String result = AgentforceOptimizeService.getLlmStepDetails(
+    'DATA_SPACE',
+    new List<String>{ 'STEP_ID_1', 'STEP_ID_2' }
+);
+System.debug('STDM_RESULT:' + result);
+```
+
+```bash
+sf apex run --file /tmp/stdm_llm.apex -o <org> --json
+```
+
+Returns a JSON array of `LlmStepDetail` objects:
+```json
+[
+  {
+    "step_id": "...",
+    "interaction_id": "...",
+    "step_name": "...",
+    "prompt": "System: You are a Tesla support agent...\nUser: I want to schedule a test drive",
+    "llm_response": "I'd be happy to help you schedule a test drive...",
+    "generation_id": "...",
+    "gateway_request_id": "..."
+  }
+]
+```
+
+- `prompt` — full prompt from `GenAIGatewayRequest__dlm.prompt__c` (null if Einstein Audit DMO not enabled)
+- `llm_response` — model response from `GenAIGeneration__dlm.responseText__c` (null if not available)
+
+Use these to confirm whether the agent's instructions were included in the prompt and whether the response deviated from them.
 
 ### 1.3 Reconstruct conversations
 
@@ -246,7 +298,8 @@ Check each session for these patterns:
 | Same `topic` repeated 3+ turns with no resolution | **No transition** — missing `after` or `after_reasoning` |
 | `step.duration_ms` > 10 000 | **Slow action** — Flow/Apex performance |
 | Only `LLM_STEP`s, no `ACTION_STEP`s at all | **TODO stubs** — actions have no SKILL.md target |
-| `TRUST_GUARDRAILS_STEP` present and `output` contains `'value': 'LOW'` | **Low instruction adherence** — agent responses drifting from instructions. Check `explanation` field for the reason. |
+| `TRUST_GUARDRAILS_STEP` present and `output` contains `'value': 'LOW'` | **Low instruction adherence** — agent responses drifting from instructions. Check `explanation` field for the reason. Run 1.2b to get the raw LLM prompt and see what was actually sent. |
+| `end_type` is `null` on a short session (< 30s, 1-2 turns) | **Abandoned session** — user may have encountered a frustrating dead-end |
 
 ### 1.5 Present findings
 
@@ -351,13 +404,22 @@ AiAgentSession (1)
 
 ### Key fields
 
+**AiAgentSession** (`ssot__AiAgentSession__dlm`)
+- `ssot__Id__c` — Session ID
+- `ssot__StartTimestamp__c` / `ssot__EndTimestamp__c` — Session timing → `session.duration_ms`
+- `ssot__AiAgentChannelType__c` — Channel → `session.channel`
+- `ssot__AiAgentSessionEndType__c` — How the session ended: `USER_ENDED`, `AGENT_ENDED`, or null → `session.end_type`
+- `ssot__VariableText__c` — Final variable snapshot for the session → `session.session_variables`
+
 **AiAgentSessionParticipant** (`ssot__AiAgentSessionParticipant__dlm`)
 - `ssot__AiAgentSessionId__c` — Session this participant belongs to
-- `ssot__ParticipantId__c` — ID of the participant. Agent versions appear here as `GenAiPlannerDefinition` IDs (key prefix `16j`). User accounts appear as `005...` IDs. IDs may be stored as either 15-char or 18-char — `AgentforceOptimizeService` automatically queries both formats.
+- `ssot__AiAgentApiName__c` — API name of the agent (primary filter field — no SOQL needed)
+- `ssot__ParticipantId__c` — GenAiPlannerDefinition ID (key prefix `16j`) for agents, `005...` for users. May be 15-char or 18-char — `AgentforceOptimizeService` automatically queries both formats as a fallback.
 
 **AiAgentInteraction** (`ssot__AiAgentInteraction__dlm`)
 - `ssot__TopicApiName__c` — Topic/skill that handled this turn → `turn.topic`
 - `ssot__StartTimestamp__c` / `ssot__EndTimestamp__c` — Turn timing → `turn.duration_ms`
+- `ssot__TelemetryTraceId__c` — Distributed tracing ID → `turn.telemetry_trace_id`
 
 **AiAgentInteractionMessage** (`ssot__AiAgentInteractionMessage__dlm`)
 - `ssot__AiAgentInteractionMessageType__c` — `Input` (user) or `Output` (agent) → `message.message_type`
@@ -369,6 +431,20 @@ AiAgentSession (1)
 - `ssot__ErrorMessageText__c` — Error text (null if none) → `step.error`
 - `ssot__InputValueText__c` / `ssot__OutputValueText__c` — Input/output data → `step.input` / `step.output`
 - `ssot__PreStepVariableText__c` / `ssot__PostStepVariableText__c` — Variable snapshots → `step.pre_vars` / `step.post_vars`
+- `ssot__GenerationId__c` — Links to `GenAIGeneration__dlm` → `step.generation_id` (non-null on LLM_STEP)
+- `ssot__GenAiGatewayRequestId__c` — Links to `GenAIGatewayRequest__dlm` → `step.gateway_request_id` (non-null on LLM_STEP)
+
+**Einstein Audit & Feedback DMOs** (joined via `getLlmStepDetails()`)
+
+`GenAIGeneration__dlm` — LLM generation records:
+- `generationId__c` — Join key to `ssot__GenerationId__c` on the step DMO
+- `responseText__c` — The full LLM response text → `LlmStepDetail.llm_response`
+
+`GenAIGatewayRequest__dlm` — Raw gateway requests sent to the LLM:
+- `gatewayRequestId__c` — Join key to `ssot__GenAiGatewayRequestId__c` on the step DMO
+- `prompt__c` — Full prompt text including system instructions → `LlmStepDetail.prompt`
+
+These two DMOs are only populated when Einstein Audit & Feedback is enabled in the org's Data Cloud setup.
 
 **`TRUST_GUARDRAILS_STEP`** — A safety/compliance step that measures whether the agent's response followed its instructions:
 - `step.name` is typically `InstructionAdherence`
