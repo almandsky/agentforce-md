@@ -81,7 +81,7 @@ def test_apex_meta_xml():
     """Meta XML has correct structure."""
     xml = generate_apex_meta_xml()
     assert '<?xml version="1.0"' in xml
-    assert "<apiVersion>63.0</apiVersion>" in xml
+    assert "<apiVersion>66.0</apiVersion>" in xml
     assert "<status>Active</status>" in xml
     assert "ApexClass" in xml
 

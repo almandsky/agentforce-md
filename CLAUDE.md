@@ -41,6 +41,9 @@ This installs to `~/.claude/agentforce-md/` with a bundled venv. Skills are copi
 
 # Execute a single action against a live org
 ~/.claude/agentforce-md/bin/agentforce-md run --skill templates/multi-topic/.claude/skills/check-order-status/SKILL.md -o MyOrg --input '{"order_number":"12345"}' --dry-run
+
+# Analyze session traces, reproduce issues, and improve an agent (agentforce-optimize skill)
+# Type /agentforce-optimize in Claude Code with a project that has agent markdown files
 ```
 
 ## Development (contributing)

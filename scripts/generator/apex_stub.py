@@ -15,7 +15,7 @@ _TYPE_MAP = {
     "object": "Map<String, Object>",
 }
 
-API_VERSION = "63.0"
+API_VERSION = "66.0"
 
 
 def generate_apex_class(
