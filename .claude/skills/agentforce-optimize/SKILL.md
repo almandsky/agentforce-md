@@ -145,7 +145,16 @@ System.debug('STDM_RESULT:' + result);
 sf apex run --file /tmp/stdm_find.apex -o <org> --json
 ```
 
-Parse: find `STDM_RESULT:` in `result.logs`, extract the JSON array that follows on that line.
+Parse: search for `DEBUG|STDM_RESULT:` (not `STDM_RESULT:` — the first occurrence of that string is in the source echo, not the debug output) and extract the JSON that follows on that line:
+
+```bash
+python3 -c "
+import json, sys
+logs = json.load(sys.stdin)['result']['logs']
+idx = logs.find('DEBUG|STDM_RESULT:')
+print(logs[idx + len('DEBUG|STDM_RESULT:'):].split('\n')[0].strip())
+" < /tmp/apex_result.json
+```
 
 The result is a JSON array of `SessionSummary` objects:
 ```json
@@ -190,7 +199,7 @@ System.debug('STDM_RESULT:' + result);
 sf apex run --file /tmp/stdm_details.apex -o <org> --json
 ```
 
-Parse: find `STDM_RESULT:` in `result.logs`, extract the JSON array. Each element is a `ConversationData` object:
+Parse using the same `DEBUG|STDM_RESULT:` pattern (see 1.1). Each element is a `ConversationData` object:
 
 ```json
 {
@@ -301,6 +310,8 @@ Check each session for these patterns and classify by root cause category:
 | Agent answers knowledge question but gives generic/wrong response | **Knowledge miss** | `Knowledge Gap — Infrastructure` (no space/action) or `Knowledge Gap — Content` (article missing/stale) |
 | `TRUST_GUARDRAILS_STEP` present and `output` contains `'value': 'LOW'` | **Low instruction adherence** — agent responses drifting from instructions. Check `explanation` field. Run 1.2b to get the raw LLM prompt. | `Agent Configuration Gap` — topic instructions unclear or conflicting |
 | `end_type` is `null` on a short session (< 30s, 1-2 turns) | **Abandoned session** — user may have hit a dead-end | `Agent Configuration Gap` or `Knowledge Gap` |
+| Specialized topic (e.g. `identity_collection`, `schedule_test_drive`) appears for exactly 1 turn then session returns to `entry` permanently | **Handoff topic with no post-collection routing** — topic collects input but has no instruction for what to do after | `Agent Configuration Gap` — topic instructions missing the "after this, route to X" step |
+| `schedule_test_drive` / `general_support` topic has zero sessions over the analysis window despite the agent being designed to handle those intents | **Dead topic** — topic exists in config but is never entered | `Agent Configuration Gap` — `entry` topic is handling the intent directly instead of routing |
 
 **Root cause categories:**
 - `Knowledge Gap — Infrastructure` — no `DataKnowledgeSpace`, no sources indexed, or knowledge action (`AnswerQuestionsWithKnowledge`) not deployed
@@ -342,7 +353,7 @@ Priority: P1 = action errors, topic misroutes, LOW adherence; P2 = missing actio
 | Agent Configuration Gap | N | N | +N sessions fully resolved |
 | Knowledge Gap | N | N | +N sessions partially resolved |
 
-Then ask: "Would you like to (1) query the live agent config to confirm root causes (Phase 1.5b), (2) reproduce any issue (Phase 2), (3) apply fixes (Phase 3), or all of the above?"
+After presenting findings, **automatically proceed to Phase 1.5b** — do not wait for the user to ask. The config evidence is needed to confirm root causes before any fix can be proposed. Ask about Phase 2/3 only after 1.5b is complete.
 
 ### 1.5b Agent Config Evidence
 
@@ -381,11 +392,22 @@ sf data query \
   -o <org> --json
 ```
 
+**Critical check — identical instructions across topics:**
+
+After querying Step 3, compare the instruction text across all topics. If 2 or more topics share the same `Description`/`Instruction` text word-for-word, this is a **critical `Agent Configuration Gap`** — the topics have no differentiated guidance and the LLM is falling back to topic `Description` routing alone. Flag this prominently before presenting per-topic analysis:
+
+```
+⚠️  CRITICAL: All N topics share identical GenAiPluginInstructionDef text.
+    Specialized topics (identity_collection, schedule_test_drive, etc.) have no actionable
+    instructions — the agent cannot know what to do differently in each topic.
+    Root cause: Agent Configuration Gap (identical instructions across all topics)
+```
+
 **Step 4 — Knowledge infrastructure (only if any topic is expected to answer knowledge questions):**
 
 ```bash
 # Does a knowledge space exist?
-sf data query --query "SELECT Id, Name, Status FROM DataKnowledgeSpace" -o <org> --json
+sf data query --query "SELECT Id, Name FROM DataKnowledgeSpace" -o <org> --json
 
 # Is the knowledge action deployed for this agent?
 sf data query \
@@ -629,7 +651,7 @@ These standard Salesforce objects are queried in Phase 1.5b to cross-reference S
 | `GenAiPlannerDefinition` | The agent itself | `DeveloperName` (has `_v1` suffix), `Description` (agent-level system prompt) |
 | `GenAiPluginDefinition` | Topics and actions | `DeveloperName` (format: `<topicName>_<15-char-planner-id>`), `MasterLabel`, `Description` (topic routing description) |
 | `GenAiPluginInstructionDef` | Topic instructions (verbatim) | `GenAiPluginDefinitionId` (FK to topic), `Instruction` or `Description` (the actual instruction text — field name varies by API version; describe the object to confirm) |
-| `DataKnowledgeSpace` | Knowledge base container | `Name`, `Status` |
+| `DataKnowledgeSpace` | Knowledge base container | `Name` (`Status` field does not exist — query with `SELECT Id, Name` only) |
 | `DataKnowledgeSrcFileRef` | Individual knowledge sources | `DataKnowledgeSpaceId`, `FileName`, `Status`, `LastModifiedDate` |
 | `KnowledgeArticle` | Salesforce Knowledge articles | `Title`, `ArticleNumber`, `PublishStatus` |
 
