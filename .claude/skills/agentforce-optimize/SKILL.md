@@ -377,6 +377,8 @@ sf data query \
   -o <org> --json
 ```
 
+> ⚠️ **SOQL LIKE is not supported on ID fields** (`INVALID_QUERY_FILTER_OPERATOR: invalid operator on id field`). Filter only on `DeveloperName` (a text field) using `LIKE`, never on `Id`. For exact ID lookups always use `=` or `IN`.
+
 **Step 3 — Verbatim topic instructions:**
 
 The instruction field name varies by org API version — describe the object first:
@@ -464,52 +466,143 @@ Root cause: Agent Configuration Gap — <topic_DeveloperName>
 
 Use `sf agent preview` to simulate conversations in an isolated session (no production data affected).
 
+### 2.1 Build test scenarios from Phase 1 findings
+
+Before opening a preview session, define one test scenario per confirmed issue:
+
+| Issue type (Phase 1) | Test message to send | Expected behavior | Failure indicator |
+|---|---|---|---|
+| Dead topic — never entered | Utterance that *should* route to that topic | `topic` in response = `<dead_topic>` | Topic stays `entry` |
+| Action not called | Ask directly for the action's task | Action fires in the response | Conversational reply with no action invoked |
+| Handoff topic — no post-collection routing | Enter the handoff topic, then send a follow-up | Session continues in specialized topic | Falls back to `entry` after 1 turn |
+| LOW adherence | Exact utterance from the flagged `TRUST_GUARDRAILS_STEP` | Response follows topic instruction | Generic/off-instruction answer |
+| Knowledge miss | Question requiring a specific knowledge article | Agent cites correct information | Hallucinated or generic answer |
+| Topic misroute | Utterance that belongs to topic A | `topic` = A in response | `topic` = B or `entry` |
+
+### 2.2 Run a preview session
+
 ```bash
-# Start a preview session — note the session ID in the response
-sf agent preview start --api-name <AgentApiName> -o <org> --json
+# Start a preview session
+sf agent preview start --api-name <AgentApiName> -o <org> --json | tee /tmp/preview_start.json
 
-# Send a message that reproduces the issue
+# Extract the session ID
+SESSION_ID=$(python3 -c "import json,sys; print(json.load(open('/tmp/preview_start.json'))['result']['sessionId'])")
+echo "Session ID: $SESSION_ID"
+
+# Send the test utterance (flag is --utterance, not --message; --api-name is required)
 sf agent preview send \
-  --session-id <preview-session-id> \
-  --message "your test message here" \
-  -o <org> --json
+  --session-id "$SESSION_ID" \
+  --utterance "your test utterance here" \
+  --api-name <AgentApiName> \
+  -o <org> --json | tee /tmp/preview_response.json
 
-# Continue the conversation as needed
-sf agent preview send \
-  --session-id <preview-session-id> \
-  --message "follow-up message" \
-  -o <org> --json
+# Extract the agent's response text
+# The message type is "Inform" in current API versions — print all messages regardless of type
+python3 -c "
+import json
+data = json.load(open('/tmp/preview_response.json'))
+result = data.get('result', data)
+# Response field varies by API version — try common shapes
+for key in ['messages', 'message', 'response']:
+    if key in result:
+        msgs = result[key] if isinstance(result[key], list) else [result[key]]
+        for m in msgs:
+            if isinstance(m, dict):
+                msg_type = m.get('type', '?')
+                msg_text = m.get('message', m.get('text', m))
+                print(f'Agent [{msg_type}]: {msg_text}')
+        break
+else:
+    print(json.dumps(result, indent=2))  # fallback: print full result
+"
 
-# End the session
-sf agent preview end --session-id <preview-session-id> -o <org> --json
+# End the session when done
+sf agent preview end --session-id "$SESSION_ID" -o <org> --json
 ```
 
-Report after reproduction:
-- Whether the issue is confirmed or cannot be reproduced
-- Exact topic routing and action sequence observed
-- Agent's verbatim response
-- Whether the issue is consistent or intermittent
+For multi-turn scenarios (e.g. handoff routing), repeat the `send` step for each follow-up utterance before ending the session.
+
+### 2.3 Classify each scenario
+
+Run each test scenario **3 times** (start a new session each run) and classify:
+
+| Verdict | Criteria |
+|---|---|
+| `[CONFIRMED]` | Same failure in 3/3 runs |
+| `[INTERMITTENT]` | Failure in 1–2 of 3 runs |
+| `[NOT REPRODUCED]` | Passes in 3/3 runs — re-examine Phase 1 evidence |
+
+### 2.4 Record results
+
+For each scenario, record before proceeding to Phase 3:
+
+```
+Scenario: <issue type from Phase 1>
+Test message: "<exact utterance sent>"
+Expected: <topic name / action name / response behavior>
+Actual:   <observed topic / action / verbatim response>
+Verdict:  [CONFIRMED] / [INTERMITTENT] / [NOT REPRODUCED]
+```
+
+Only `[CONFIRMED]` and `[INTERMITTENT]` issues proceed to Phase 3.
 
 ---
 
 ## Phase 3: Improve — Fix and Deploy
 
-### 3.1 Map issue to fix location
+### 3.1 Understand the markdown file structure
+
+Each topic is a `.claude/agents/<topic-name>.md` file:
+
+```markdown
+---
+name: topic-name                   # kebab-case; snake_case in .agent output
+description: <one-line summary>    # → GenAiPluginDefinition.Description (topic routing)
+tools: ActionName1, ActionName2    # → actions available in this topic
+agentforce:
+  bindings:
+    ActionName1:
+      with:                        # input mappings: action param ← variable/literal
+        inputParam: "{{var}}"
+      set:                         # output capture: variable ← action output field
+        myVar: "{{output.field}}"
+      after: next-topic            # routing after action completes
+---
+
+> ⚠️ **`{{var}}` syntax in `with:` bindings is NOT supported by the Agent Script compiler.**
+> Bindings using `inputParam: "{{someVariable}}"` will cause a `SyntaxError` when deployed.
+> If you need to pass a variable value as an action input, remove the `with:` binding and let
+> the agent resolve the value through its instructions (e.g. "pass the collected name to the action").
+> The `set:` (capture) and `after:` (routing) keys are safe to use.
+
+<scope paragraph — first paragraph after closing --->
+  ↑ also feeds GenAiPluginDefinition.Description (topic routing signal)
+
+<instruction body — all text after scope paragraph>
+  ↑ becomes GenAiPluginInstructionDef.Instruction — injected verbatim into LLM prompt
+```
+
+**Critical mapping:**
+- `description:` frontmatter + first body paragraph → topic routing description (`GenAiPluginDefinition.Description`)
+- Instruction body (everything after the scope paragraph) → verbatim LLM prompt text (`GenAiPluginInstructionDef.Instruction` or `Description`)
+- This is exactly what Phase 1.5b queried — the fix closes the gap between what was deployed and what should be there
+
+### 3.2 Map issue to fix location
 
 | Root cause category | STDM signal | Fix target | What to change |
 |---|---|---|---|
-| `Agent Configuration Gap` | Topic misroute | `.claude/agents/<topic>.md` | Scope paragraph (first para after `---`) — use config evidence from 1.5b to see current `GenAiPluginDefinition.Description` and tighten it |
-| `Agent Configuration Gap` | Action not called | `.claude/agents/<topic>.md` | Add to `tools:` frontmatter; update topic instructions to explicitly invoke the action |
-| `Agent Configuration Gap` | Wrong action input / error | `.claude/skills/<action>/SKILL.md` | Correct `inputs:` types; fix `with:` bindings |
-| `Agent Configuration Gap` | Variable not captured | `.claude/agents/<topic>.md` | Fix `bindings.<Action>.set:` |
-| `Agent Configuration Gap` | No post-action transition | `.claude/agents/<topic>.md` | Add `bindings.<Action>.after:` or `after_reasoning:` entry |
-| `Agent Configuration Gap` | LOW adherence / vague instructions | `.claude/agents/<topic>.md` instruction lines | Use verbatim `GenAiPluginInstructionDef.Instruction` (from 1.5b) to identify the exact gap; rewrite the relevant instruction lines |
-| `Agent Configuration Gap` | Action is a TODO stub | Create the Flow/Apex target, update `SKILL.md` `agentforce: target:` | — |
+| `Agent Configuration Gap` | Topic misroute | `.claude/agents/<topic>.md` | Tighten `description:` + scope paragraph to exclude overlapping intents |
+| `Agent Configuration Gap` | Action not called | `.claude/agents/<topic>.md` | Add action to `tools:`; add explicit instruction: "Use `<ActionName>` to..." |
+| `Agent Configuration Gap` | Wrong action input / error | `.claude/skills/<action>/SKILL.md` | Correct `inputs:` types; fix `with:` bindings. **Target URI format**: `flow://FlowApiName`, `apex://ClassName`, `retriever://RetrieverName` — type prefix must be lowercase (`Flow://` is invalid, `flow://` is correct). |
+| `Agent Configuration Gap` | Variable not captured | `.claude/agents/<topic>.md` | Add `agentforce: bindings: <Action>: set:` mapping |
+| `Agent Configuration Gap` | No post-action transition | `.claude/agents/<topic>.md` | Add `agentforce: bindings: <Action>: after: <next-topic>` |
+| `Agent Configuration Gap` | LOW adherence / vague instructions | `.claude/agents/<topic>.md` instruction body | Rewrite using Phase 1.5b verbatim text as baseline — see instruction principles below |
+| `Agent Configuration Gap` | Identical instructions across topics | All `.claude/agents/*.md` instruction bodies | Give each topic distinct, actionable instructions |
 | `Knowledge Gap — Infrastructure` | Knowledge question answered generically | Add `.claude/skills/answer-questions-with-knowledge/SKILL.md`; create `DataKnowledgeSpace` and index sources | — |
-| `Knowledge Gap — Content` | Knowledge question — wrong/missing answer | Add missing articles to knowledge space; verify `DataKnowledgeSrcFileRef` has a record linking the article | — |
+| `Knowledge Gap — Content` | Knowledge question — wrong/missing answer | Add missing articles to knowledge space; verify `DataKnowledgeSrcFileRef` links the article | — |
 | `Platform / Runtime Issue` | Action timeout / latency > 10s | Flow or Apex class | Optimize query/processing logic; add timeout handling |
 
-**When fixing topic instructions (Agent Configuration Gap — LOW adherence or action not called)**, always quote the current live instruction verbatim before proposing a replacement:
+**When fixing topic instructions**, always quote the current live instruction verbatim (from Phase 1.5b) before proposing a replacement:
 
 ```
 Current instruction (GenAiPluginInstructionDef <Id>):
@@ -519,34 +612,147 @@ Proposed replacement:
 > <new instruction text>
 ```
 
-This ensures the fix addresses the exact deployed text, not a stale local copy.
+### 3.3 Principles for effective topic instructions
 
-### 3.2 Apply fixes
+Good instructions are specific, imperative, and action-named. Poor instructions are persona descriptions or generic guidance reused across topics.
 
-Read the relevant files, make targeted edits, then re-convert:
+1. **Name the action explicitly** — "Use `ScheduleTestDrive` to book the appointment" not "help the user book"
+2. **State the pre-condition** — "Only handle scheduling after the customer's name and email have been collected"
+3. **State what to do after** — "After `ScheduleTestDrive` completes, confirm the date/time and ask if they need anything else"
+4. **Scope tightly** — "This topic handles test drive scheduling only. For vehicle specs or pricing, do not answer — route back to `general_support`"
+5. **Keep persona out of instructions** — persona belongs in the agent-level description (`GenAiPlannerDefinition.Description`), not per-topic instructions
+6. **One responsibility per topic** — if the instruction covers 3 distinct tasks, split into 3 topics
 
-```bash
-~/.claude/agentforce-md/bin/agentforce-md convert \
-  --project-root <path> \
-  --agent-name <AgentName> \
-  --default-agent-user "<ASA_USER>"
+**Before / after example** (identical instructions → distinct instructions):
+
+*Before (generic Nova persona text, same across all 4 topics):*
+```
+You are Nova, a friendly Tesla support assistant. Greet customers warmly,
+help them with their needs, and guide them toward scheduling a test drive.
 ```
 
-Show a summary of what changed in the generated `.agent` file (diff the key sections).
+*After (for `identity_collection` topic specifically):*
+```
+Collect the customer's name, email address, and phone number using CollectCustomerInfo.
+Do not proceed until all three fields are provided.
+After collection, confirm the details back to the customer, then route to schedule_test_drive.
+Do not answer questions about vehicles, pricing, or appointments in this topic.
+```
 
-### 3.3 Deploy
+### 3.4 Apply fixes
+
+**Check whether markdown source files exist first.** Agents built in Agent Builder have no `.claude/agents/` directory — Phase 3 must create the files from scratch in that case.
 
 ```bash
-# Validate first
+# Check if markdown source files already exist
+ls <project-root>/.claude/agents/ 2>/dev/null || echo "No markdown source — must create from scratch"
+```
+
+**Path A — markdown source exists:**
+
+Read the target file, make the targeted edit, then re-convert:
+
+```bash
+# Read the current markdown
+cat <project-root>/.claude/agents/<topic-name>.md
+
+# After editing with the Edit tool, re-convert to regenerate the .agent file
+~/.claude/agentforce-md/bin/agentforce-md convert \
+  --project-root <project-root> \
+  --agent-name <AgentName> \
+  --default-agent-user "<ASA_USER>"
+
+# Spot-check the generated .agent output — confirm new instruction text appears verbatim
+grep -A 30 "topicApiName: <topic_name>" \
+  <project-root>/force-app/main/default/genAiPlanners/<AgentName>.agent
+```
+
+Show the before/after diff of the instruction text in the `.agent` output before deploying.
+
+**Path B — no markdown source (agent built in Agent Builder):**
+
+Create `.claude/agents/<topic-name>.md` files from scratch using the config evidence from Phase 1.5b. Use the queried `GenAiPluginDefinition.Description` as the `description:` frontmatter value and the `GenAiPluginInstructionDef.Instruction` text as the body. Then run the convert command as above.
+
+If the convert + deploy cycle is blocked (see Phase 3.5 fallbacks), use the Tooling API PATCH in Phase 3.5b to update instruction records directly without needing markdown source files.
+
+### 3.5 Deploy
+
+```bash
+# Validate first (dry run — no changes to org)
 ~/.claude/agentforce-md/bin/agentforce-md deploy --api-name <AgentName> -o <org> --dry-run
 
 # Deploy and activate
 ~/.claude/agentforce-md/bin/agentforce-md deploy --api-name <AgentName> -o <org> --activate
 ```
 
-### 3.4 Verify
+**If `--activate` fails with `duplicate value found: GenAiPluginDefinition`:**
 
-Use Phase 2 (preview) to confirm the fix resolves the issue with the same inputs that triggered it. If the fix is good, run Phase 1 again on new session data to validate behavior at scale.
+This happens when a previous failed publish left an orphaned draft. Use the bundle deploy fallback:
+
+```bash
+sf project deploy start --metadata "AiAuthoringBundle:<AgentName>" -o <org>
+```
+
+> ⚠️ **Important:** `sf project deploy start` deploys the bundle file to the org's metadata store but does **not** update live `GenAiPluginInstructionDef` records. The publish step is what propagates instruction changes to the LLM prompt. If you need the instruction changes to take effect immediately without going through publish, use Phase 3.5b below.
+
+### 3.5b Update instructions directly via Tooling API (bypass publish)
+
+When `agentforce-md deploy --activate` and `sf project deploy start` both fail to update the live instruction records, use the Tooling API to PATCH `GenAiPluginInstructionDef` directly. This is the **only reliable method** — Apex DML is blocked on this object (`DML operation Update not allowed on List<GenAiPluginInstructionDef>`).
+
+```bash
+# First, get the InstructionDef ID from Phase 1.5b Step 3 query results
+# (you already have this from the config evidence step)
+
+# Patch the Description field with the new instruction text
+sf api request rest \
+  "/services/data/v66.0/tooling/sobjects/GenAiPluginInstructionDef/<InstructionDefId>" \
+  --method PATCH \
+  --body '{"Description": "<new instruction text — escape quotes with backslash>"}' \
+  -o <org>
+```
+
+For multi-line instruction text, write the body to a temp file first:
+
+```bash
+# Write the body to a JSON file to avoid shell quoting issues
+cat > /tmp/patch_body.json <<'EOF'
+{
+  "Description": "Collect the customer's name and email using CollectCustomerInfo.\nDo not proceed until both fields are provided.\nAfter collection, route to schedule_test_drive."
+}
+EOF
+
+sf api request rest \
+  "/services/data/v66.0/tooling/sobjects/GenAiPluginInstructionDef/<InstructionDefId>" \
+  --method PATCH \
+  --body "$(cat /tmp/patch_body.json)" \
+  -o <org>
+```
+
+A successful PATCH returns HTTP 204 No Content (empty response body). Verify by re-querying:
+
+```bash
+sf data query \
+  --query "SELECT Id, Instruction FROM GenAiPluginInstructionDef WHERE Id = '<InstructionDefId>'" \
+  -o <org> --json
+```
+
+> **Note:** The Tooling API field name is `Description` (the external-facing name). The SOQL field name on the same object is `Instruction`. Both refer to the same underlying text that gets injected into the LLM prompt.
+
+### 3.6 Verify
+
+**Immediate** — run the Phase 2 scenarios that returned `[CONFIRMED]` before the fix. All should now return `[NOT REPRODUCED]`.
+
+**At scale** — after 24–48 hours of new live sessions, re-run Phase 1 over the new date range and compare against the pre-fix baseline:
+
+| Metric | What to look for after fix |
+|---|---|
+| Topics seen in STDM | Dead topics should now appear in session data |
+| `TRUST_GUARDRAILS_STEP` value | `LOW` occurrences should drop or disappear |
+| Action invocation per turn | Actions should now fire for the intents they cover |
+| `action_error_count` | Should not increase (regression check) |
+| Avg session duration / turn count | Shorter = less confusion, faster resolution |
+
+If new issues surface in the post-fix Phase 1 run, repeat the cycle from Phase 1.4.
 
 ---
 
