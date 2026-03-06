@@ -14,7 +14,7 @@ def test_minimal_flow():
     assert "<processType>AutoLaunchedFlow</processType>" in xml
     assert "<status>Active</status>" in xml
     assert "Placeholder_Assignment" in xml
-    assert "<apiVersion>63.0</apiVersion>" in xml
+    assert "<apiVersion>66.0</apiVersion>" in xml
 
 
 def test_flow_with_inputs():

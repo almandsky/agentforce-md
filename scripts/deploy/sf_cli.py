@@ -246,7 +246,7 @@ class SfAgentCli:
         body = json.dumps({"inputs": [inputs]})
         return self._run([
             self.sf_binary, "api", "request", "rest",
-            f"/services/data/v63.0/actions/custom/flow/{flow_api_name}",
+            f"/services/data/v66.0/actions/custom/flow/{flow_api_name}",
             "--method", "POST",
             "--body", body,
             "-o", target_org,
@@ -268,7 +268,7 @@ class SfAgentCli:
         body = json.dumps({"inputs": [inputs]})
         return self._run([
             self.sf_binary, "api", "request", "rest",
-            f"/services/data/v63.0/actions/custom/apex/{class_name}",
+            f"/services/data/v66.0/actions/custom/apex/{class_name}",
             "--method", "POST",
             "--body", body,
             "-o", target_org,

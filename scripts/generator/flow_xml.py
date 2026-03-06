@@ -15,7 +15,7 @@ _TYPE_MAP = {
     "object": "Apex",
 }
 
-API_VERSION = "63.0"
+API_VERSION = "66.0"
 
 
 def generate_flow_xml(
@@ -36,7 +36,7 @@ def generate_flow_xml(
     - Uses type-appropriate XML value elements in the placeholder assignment
       (booleanValue for boolean, numberValue for number, stringValue otherwise)
     - Has a single Assignment element as placeholder logic
-    - Uses API version 63.0
+    - Uses API version 66.0
 
     Args:
         api_name: The flow API name.

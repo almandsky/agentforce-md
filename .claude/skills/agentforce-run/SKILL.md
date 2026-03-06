@@ -37,8 +37,8 @@ Execute individual SKILL.md actions against a live Salesforce org without deploy
 1. Parses the SKILL.md to get the target and input/output definitions
 2. Validates provided inputs against expected inputs
 3. Routes based on target type:
-   - `flow://Name` -> invokes via `/services/data/v63.0/actions/custom/flow/Name`
-   - `apex://Name` -> invokes via `/services/data/v63.0/actions/custom/apex/Name`
+   - `flow://Name` -> invokes via `/services/data/v66.0/actions/custom/flow/Name`
+   - `apex://Name` -> invokes via `/services/data/v66.0/actions/custom/apex/Name`
 4. Returns the action result (success/failure + output values)
 
 ## Output

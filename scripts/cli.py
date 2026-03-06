@@ -227,7 +227,7 @@ def _ensure_sfdx_project_json() -> None:
         "packageDirectories": [{"path": "force-app/main/default", "default": True}],
         "namespace": "",
         "sfdcLoginUrl": "https://login.salesforce.com",
-        "sourceApiVersion": "63.0",
+        "sourceApiVersion": "66.0",
     }
     sfdx_path.write_text(json.dumps(sfdx_content, indent=2) + "\n", encoding="utf-8")
     logging.info("Created %s", sfdx_path)
