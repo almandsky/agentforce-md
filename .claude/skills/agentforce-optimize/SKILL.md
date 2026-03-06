@@ -286,20 +286,27 @@ Turn 1  [Topic: <topic>]  <duration_ms>ms
 
 ### 1.4 Identify issues
 
-Check each session for these patterns:
+Check each session for these patterns and classify by root cause category:
 
-| Signal | Issue type |
-|---|---|
-| `step.error` not null AND `step.step_type == ACTION_STEP` | **Action error** — Flow/Apex failed |
-| `turn.topic` doesn't match user intent | **Topic misroute** |
-| No `ACTION_STEP` when action was expected | **Action not called** — instruction gap or TODO stub |
-| `step.input` has wrong/empty values | **Wrong action input** — `with:` binding incorrect |
-| `step.pre_vars` ≠ `step.post_vars` unexpectedly | **Variable not captured** — `set:` binding missing |
-| Same `topic` repeated 3+ turns with no resolution | **No transition** — missing `after` or `after_reasoning` |
-| `step.duration_ms` > 10 000 | **Slow action** — Flow/Apex performance |
-| Only `LLM_STEP`s, no `ACTION_STEP`s at all | **TODO stubs** — actions have no SKILL.md target |
-| `TRUST_GUARDRAILS_STEP` present and `output` contains `'value': 'LOW'` | **Low instruction adherence** — agent responses drifting from instructions. Check `explanation` field for the reason. Run 1.2b to get the raw LLM prompt and see what was actually sent. |
-| `end_type` is `null` on a short session (< 30s, 1-2 turns) | **Abandoned session** — user may have encountered a frustrating dead-end |
+| Signal | Issue type | Root cause category |
+|---|---|---|
+| `step.error` not null AND `step.step_type == ACTION_STEP` | **Action error** — Flow/Apex failed | `Agent Configuration Gap` or `Platform / Runtime Issue` |
+| `turn.topic` doesn't match user intent | **Topic misroute** | `Agent Configuration Gap` — topic boundary too broad/narrow |
+| No `ACTION_STEP` when action was expected | **Action not called** — instruction gap or TODO stub | `Agent Configuration Gap` — action not wired or not deployed |
+| `step.input` has wrong/empty values | **Wrong action input** — `with:` binding incorrect | `Agent Configuration Gap` — binding misconfigured |
+| `step.pre_vars` ≠ `step.post_vars` unexpectedly | **Variable not captured** — `set:` binding missing | `Agent Configuration Gap` — `set:` binding missing |
+| Same `topic` repeated 3+ turns with no resolution | **No transition** — missing `after` or `after_reasoning` | `Agent Configuration Gap` — post-action transition missing |
+| `step.duration_ms` > 10 000 | **Slow action** — Flow/Apex performance | `Platform / Runtime Issue` |
+| Only `LLM_STEP`s, no `ACTION_STEP`s at all | **TODO stubs** — actions have no SKILL.md target | `Agent Configuration Gap` — actions not deployed |
+| Agent answers knowledge question but gives generic/wrong response | **Knowledge miss** | `Knowledge Gap — Infrastructure` (no space/action) or `Knowledge Gap — Content` (article missing/stale) |
+| `TRUST_GUARDRAILS_STEP` present and `output` contains `'value': 'LOW'` | **Low instruction adherence** — agent responses drifting from instructions. Check `explanation` field. Run 1.2b to get the raw LLM prompt. | `Agent Configuration Gap` — topic instructions unclear or conflicting |
+| `end_type` is `null` on a short session (< 30s, 1-2 turns) | **Abandoned session** — user may have hit a dead-end | `Agent Configuration Gap` or `Knowledge Gap` |
+
+**Root cause categories:**
+- `Knowledge Gap — Infrastructure` — no `DataKnowledgeSpace`, no sources indexed, or knowledge action (`AnswerQuestionsWithKnowledge`) not deployed
+- `Knowledge Gap — Content` — knowledge infrastructure set up but specific article/document is missing, stale, or not indexed
+- `Agent Configuration Gap` — topic boundary, action wiring, instruction text, binding (`with:`/`set:`/`after:`), or missing transition
+- `Platform / Runtime Issue` — timeouts, latency spikes, deploy failures, or transient errors
 
 ### 1.5 Present findings
 
@@ -308,10 +315,126 @@ Check each session for these patterns:
 | Session ID | Start | Duration | Turns | Topics seen | Action errors |
 |---|---|---|---|---|---|
 
-**Issues** (P1 = errors/misroutes, P2 = missing actions/variable bugs, P3 = performance):
-- **[P1]** _description_ — evidence: `field_name: "value"`
+**Issues grouped by root cause category:**
 
-Then ask: "Would you like to reproduce any issue (Phase 2), apply fixes (Phase 3), or both?"
+For each root cause category that has at least one issue, list the evidence:
+
+```
+## Agent Configuration Gap
+- [P1] <description> — turn <N>, topic: <topic>, evidence: `<field>: "<value>"`
+
+## Knowledge Gap — Infrastructure
+- [P1] <description> — evidence: no DataKnowledgeSpace / AnswerQuestionsWithKnowledge not deployed
+
+## Knowledge Gap — Content
+- [P2] <description> — evidence: knowledge action called but response generic/incorrect
+
+## Platform / Runtime Issue
+- [P3] <description> — action `<name>` took <ms>ms
+```
+
+Priority: P1 = action errors, topic misroutes, LOW adherence; P2 = missing actions, variable bugs, knowledge gaps; P3 = performance, abandoned sessions
+
+**Uplift estimate** (if 3+ sessions analyzed):
+
+| Category | Issues found | Affected sessions | Projected improvement if fixed |
+|---|---|---|---|
+| Agent Configuration Gap | N | N | +N sessions fully resolved |
+| Knowledge Gap | N | N | +N sessions partially resolved |
+
+Then ask: "Would you like to (1) query the live agent config to confirm root causes (Phase 1.5b), (2) reproduce any issue (Phase 2), (3) apply fixes (Phase 3), or all of the above?"
+
+### 1.5b Agent Config Evidence
+
+Run these queries when issues are found in 1.4 to cross-reference STDM symptoms against the live agent configuration. This answers *why* the symptoms occur, not just *what* happened.
+
+**Step 1 — Agent identity and planner description:**
+
+```bash
+sf data query \
+  --query "SELECT Id, DeveloperName, Description FROM GenAiPlannerDefinition WHERE DeveloperName LIKE '%<AgentName>%'" \
+  -o <org> --json
+```
+
+Note the `Id` (e.g. `16jWt000000REZxIAO`). Topics for this agent follow the naming convention `<topicName>_<15-char-planner-id>` in `DeveloperName`.
+
+**Step 2 — Topics deployed for this agent:**
+
+```bash
+sf data query \
+  --query "SELECT Id, DeveloperName, MasterLabel, Description FROM GenAiPluginDefinition WHERE DeveloperName LIKE '%_<15-char-planner-id>'" \
+  -o <org> --json
+```
+
+**Step 3 — Verbatim topic instructions:**
+
+The instruction field name varies by org API version — describe the object first:
+```bash
+sf api request rest "/services/data/v66.0/sobjects/GenAiPluginInstructionDef/describe" -o <org> 2>/dev/null \
+  | python3 -c "import sys,json; [print(f['name'],'-',f['type']) for f in json.loads(sys.stdin.read()).get('fields',[])]"
+```
+Use `Instruction` if present; fall back to `Description` if not.
+
+```bash
+sf data query \
+  --query "SELECT Id, GenAiPluginDefinitionId, Description FROM GenAiPluginInstructionDef WHERE GenAiPluginDefinitionId IN ('<topic_id_1>', '<topic_id_2>')" \
+  -o <org> --json
+```
+
+**Step 4 — Knowledge infrastructure (only if any topic is expected to answer knowledge questions):**
+
+```bash
+# Does a knowledge space exist?
+sf data query --query "SELECT Id, Name, Status FROM DataKnowledgeSpace" -o <org> --json
+
+# Is the knowledge action deployed for this agent?
+sf data query \
+  --query "SELECT Id, DeveloperName FROM GenAiPluginDefinition WHERE DeveloperName LIKE 'AnswerQuestionsWithKnowledge%'" \
+  -o <org> --json
+
+# If a space exists, what sources are indexed?
+sf data query \
+  --query "SELECT Id, FileName, Status, LastModifiedDate FROM DataKnowledgeSrcFileRef WHERE DataKnowledgeSpaceId = '<space_id>'" \
+  -o <org> --json
+```
+
+**Mapping STDM symptoms to config evidence:**
+
+| STDM symptom | Config to check | What to look for |
+|---|---|---|
+| Topic misroute | `GenAiPluginDefinition.Description` on affected topics | Description too broad — overlaps with adjacent topic description |
+| Action not called | `GenAiPluginInstructionDef.Instruction` for the topic | Instruction doesn't mention the action, or wrong action name |
+| LOW instruction adherence | `GenAiPluginInstructionDef.Instruction` for the topic | Instructions are vague, short, or conflict with other topics |
+| Topic stuck, no transition | `GenAiPluginInstructionDef.Instruction` | No guidance on what to do after the main task completes |
+| Knowledge miss | `DataKnowledgeSpace` + `DataKnowledgeSrcFileRef` | Space missing = Infrastructure gap; space exists but no relevant sources = Content gap |
+
+**Present config evidence alongside STDM findings:**
+
+```
+Agent: <AgentName> (<DeveloperName_v1>)
+  Description: "<verbatim GenAiPlannerDefinition.Description>"
+
+Topics configured:
+  <topic_DeveloperName>: "<verbatim GenAiPluginDefinition.Description>"
+  Instructions: "<verbatim GenAiPluginInstructionDef.Instruction>"
+  ...
+
+Knowledge:
+  DataKnowledgeSpace: <name(s) if present, else "None configured">
+  AnswerQuestionsWithKnowledge action: <deployed / not deployed>
+  Indexed sources: <N> files
+```
+
+**Confirmed root cause format** (when config evidence supports the STDM symptom):
+
+```
+Root cause: Agent Configuration Gap — <topic_DeveloperName>
+  Current instruction (GenAiPluginInstructionDef <Id>):
+  > <verbatim Instruction field text>
+
+  Proposed fix:
+  > <replacement instruction text>
+```
 
 ---
 
@@ -351,15 +474,30 @@ Report after reproduction:
 
 ### 3.1 Map issue to fix location
 
-| Issue | Fix target | What to change |
-|---|---|---|
-| Topic misroute | `.claude/agents/<topic>.md` | Scope paragraph (first para after `---`) or instruction lines |
-| Action not called | `.claude/agents/<topic>.md` | Add to `tools:` frontmatter; add instruction to invoke it |
-| Action error / wrong input | `.claude/skills/<action>/SKILL.md` | Correct `inputs:` types; fix `with:` bindings in sub-agent |
-| Variable not captured | `.claude/agents/<topic>.md` | Fix `bindings.<Action>.set:` |
-| No post-action transition | `.claude/agents/<topic>.md` | Add `bindings.<Action>.after:` or `after_reasoning:` entry |
-| Action is a TODO stub | Create the Flow/Apex target, update `SKILL.md` `agentforce: target:` |
-| Topic boundary overlap | Tighten scope paragraphs in the conflicting topics |
+| Root cause category | STDM signal | Fix target | What to change |
+|---|---|---|---|
+| `Agent Configuration Gap` | Topic misroute | `.claude/agents/<topic>.md` | Scope paragraph (first para after `---`) — use config evidence from 1.5b to see current `GenAiPluginDefinition.Description` and tighten it |
+| `Agent Configuration Gap` | Action not called | `.claude/agents/<topic>.md` | Add to `tools:` frontmatter; update topic instructions to explicitly invoke the action |
+| `Agent Configuration Gap` | Wrong action input / error | `.claude/skills/<action>/SKILL.md` | Correct `inputs:` types; fix `with:` bindings |
+| `Agent Configuration Gap` | Variable not captured | `.claude/agents/<topic>.md` | Fix `bindings.<Action>.set:` |
+| `Agent Configuration Gap` | No post-action transition | `.claude/agents/<topic>.md` | Add `bindings.<Action>.after:` or `after_reasoning:` entry |
+| `Agent Configuration Gap` | LOW adherence / vague instructions | `.claude/agents/<topic>.md` instruction lines | Use verbatim `GenAiPluginInstructionDef.Instruction` (from 1.5b) to identify the exact gap; rewrite the relevant instruction lines |
+| `Agent Configuration Gap` | Action is a TODO stub | Create the Flow/Apex target, update `SKILL.md` `agentforce: target:` | — |
+| `Knowledge Gap — Infrastructure` | Knowledge question answered generically | Add `.claude/skills/answer-questions-with-knowledge/SKILL.md`; create `DataKnowledgeSpace` and index sources | — |
+| `Knowledge Gap — Content` | Knowledge question — wrong/missing answer | Add missing articles to knowledge space; verify `DataKnowledgeSrcFileRef` has a record linking the article | — |
+| `Platform / Runtime Issue` | Action timeout / latency > 10s | Flow or Apex class | Optimize query/processing logic; add timeout handling |
+
+**When fixing topic instructions (Agent Configuration Gap — LOW adherence or action not called)**, always quote the current live instruction verbatim before proposing a replacement:
+
+```
+Current instruction (GenAiPluginInstructionDef <Id>):
+> <verbatim Instruction field value from 1.5b query>
+
+Proposed replacement:
+> <new instruction text>
+```
+
+This ensures the fix addresses the exact deployed text, not a stale local copy.
 
 ### 3.2 Apply fixes
 
@@ -479,3 +617,22 @@ Do not attempt to `JSON.parse()` these values. Only `ACTION_STEP` input/output i
 ### Data Space name
 
 Always run Phase 0 first to discover the correct Data Space `name` for the org. Use `sf api request rest "/services/data/v66.0/ssot/data-spaces" -o <org>` (no `--json` flag — unsupported on this beta command). Never assume `'default'` without checking — it is only a fallback if the API call fails. If STDM queries return zero rows after confirming the Data Space, direct the user to Salesforce Setup → Data Cloud → Data Spaces to verify the name.
+
+---
+
+## Agent Config Objects Reference
+
+These standard Salesforce objects are queried in Phase 1.5b to cross-reference STDM symptoms against the live agent configuration.
+
+| Object | Purpose | Key fields |
+|---|---|---|
+| `GenAiPlannerDefinition` | The agent itself | `DeveloperName` (has `_v1` suffix), `Description` (agent-level system prompt) |
+| `GenAiPluginDefinition` | Topics and actions | `DeveloperName` (format: `<topicName>_<15-char-planner-id>`), `MasterLabel`, `Description` (topic routing description) |
+| `GenAiPluginInstructionDef` | Topic instructions (verbatim) | `GenAiPluginDefinitionId` (FK to topic), `Instruction` or `Description` (the actual instruction text — field name varies by API version; describe the object to confirm) |
+| `DataKnowledgeSpace` | Knowledge base container | `Name`, `Status` |
+| `DataKnowledgeSrcFileRef` | Individual knowledge sources | `DataKnowledgeSpaceId`, `FileName`, `Status`, `LastModifiedDate` |
+| `KnowledgeArticle` | Salesforce Knowledge articles | `Title`, `ArticleNumber`, `PublishStatus` |
+
+**Topic `DeveloperName` convention:** Agent Builder appends the first 15 characters of the planner's Salesforce ID to each topic's name: `entry_16jWt000000REZx`. Use `WHERE DeveloperName LIKE '%_<15-char-id>'` to find all topics for a given planner.
+
+**`GenAiPluginInstructionDef` is the key object for fix targeting.** It holds the exact text that is injected into the LLM prompt as the topic's operating instructions. When STDM shows LOW adherence, action not called, or topic misroute, this is the first place to look. Always quote its `Instruction` field verbatim before proposing a replacement (see Phase 3.1).
