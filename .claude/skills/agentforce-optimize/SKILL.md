@@ -377,6 +377,8 @@ sf data query \
   -o <org> --json
 ```
 
+> ⚠️ **SOQL LIKE is not supported on ID fields** (`INVALID_QUERY_FILTER_OPERATOR: invalid operator on id field`). Filter only on `DeveloperName` (a text field) using `LIKE`, never on `Id`. For exact ID lookups always use `=` or `IN`.
+
 **Step 3 — Verbatim topic instructions:**
 
 The instruction field name varies by org API version — describe the object first:
@@ -487,13 +489,15 @@ sf agent preview start --api-name <AgentApiName> -o <org> --json | tee /tmp/prev
 SESSION_ID=$(python3 -c "import json,sys; print(json.load(open('/tmp/preview_start.json'))['result']['sessionId'])")
 echo "Session ID: $SESSION_ID"
 
-# Send the test message
+# Send the test utterance (flag is --utterance, not --message; --api-name is required)
 sf agent preview send \
   --session-id "$SESSION_ID" \
-  --message "your test utterance here" \
+  --utterance "your test utterance here" \
+  --api-name <AgentApiName> \
   -o <org> --json | tee /tmp/preview_response.json
 
 # Extract the agent's response text
+# The message type is "Inform" in current API versions — print all messages regardless of type
 python3 -c "
 import json
 data = json.load(open('/tmp/preview_response.json'))
@@ -503,8 +507,10 @@ for key in ['messages', 'message', 'response']:
     if key in result:
         msgs = result[key] if isinstance(result[key], list) else [result[key]]
         for m in msgs:
-            if isinstance(m, dict) and m.get('type','').lower() in ('output','agent','response'):
-                print('Agent:', m.get('message', m.get('text', m)))
+            if isinstance(m, dict):
+                msg_type = m.get('type', '?')
+                msg_text = m.get('message', m.get('text', m))
+                print(f'Agent [{msg_type}]: {msg_text}')
         break
 else:
     print(json.dumps(result, indent=2))  # fallback: print full result
@@ -563,6 +569,12 @@ agentforce:
       after: next-topic            # routing after action completes
 ---
 
+> ⚠️ **`{{var}}` syntax in `with:` bindings is NOT supported by the Agent Script compiler.**
+> Bindings using `inputParam: "{{someVariable}}"` will cause a `SyntaxError` when deployed.
+> If you need to pass a variable value as an action input, remove the `with:` binding and let
+> the agent resolve the value through its instructions (e.g. "pass the collected name to the action").
+> The `set:` (capture) and `after:` (routing) keys are safe to use.
+
 <scope paragraph — first paragraph after closing --->
   ↑ also feeds GenAiPluginDefinition.Description (topic routing signal)
 
@@ -581,7 +593,7 @@ agentforce:
 |---|---|---|---|
 | `Agent Configuration Gap` | Topic misroute | `.claude/agents/<topic>.md` | Tighten `description:` + scope paragraph to exclude overlapping intents |
 | `Agent Configuration Gap` | Action not called | `.claude/agents/<topic>.md` | Add action to `tools:`; add explicit instruction: "Use `<ActionName>` to..." |
-| `Agent Configuration Gap` | Wrong action input / error | `.claude/skills/<action>/SKILL.md` | Correct `inputs:` types; fix `with:` bindings |
+| `Agent Configuration Gap` | Wrong action input / error | `.claude/skills/<action>/SKILL.md` | Correct `inputs:` types; fix `with:` bindings. **Target URI format**: `flow://FlowApiName`, `apex://ClassName`, `retriever://RetrieverName` — type prefix must be lowercase (`Flow://` is invalid, `flow://` is correct). |
 | `Agent Configuration Gap` | Variable not captured | `.claude/agents/<topic>.md` | Add `agentforce: bindings: <Action>: set:` mapping |
 | `Agent Configuration Gap` | No post-action transition | `.claude/agents/<topic>.md` | Add `agentforce: bindings: <Action>: after: <next-topic>` |
 | `Agent Configuration Gap` | LOW adherence / vague instructions | `.claude/agents/<topic>.md` instruction body | Rewrite using Phase 1.5b verbatim text as baseline — see instruction principles below |
@@ -629,6 +641,15 @@ Do not answer questions about vehicles, pricing, or appointments in this topic.
 
 ### 3.4 Apply fixes
 
+**Check whether markdown source files exist first.** Agents built in Agent Builder have no `.claude/agents/` directory — Phase 3 must create the files from scratch in that case.
+
+```bash
+# Check if markdown source files already exist
+ls <project-root>/.claude/agents/ 2>/dev/null || echo "No markdown source — must create from scratch"
+```
+
+**Path A — markdown source exists:**
+
 Read the target file, make the targeted edit, then re-convert:
 
 ```bash
@@ -648,6 +669,12 @@ grep -A 30 "topicApiName: <topic_name>" \
 
 Show the before/after diff of the instruction text in the `.agent` output before deploying.
 
+**Path B — no markdown source (agent built in Agent Builder):**
+
+Create `.claude/agents/<topic-name>.md` files from scratch using the config evidence from Phase 1.5b. Use the queried `GenAiPluginDefinition.Description` as the `description:` frontmatter value and the `GenAiPluginInstructionDef.Instruction` text as the body. Then run the convert command as above.
+
+If the convert + deploy cycle is blocked (see Phase 3.5 fallbacks), use the Tooling API PATCH in Phase 3.5b to update instruction records directly without needing markdown source files.
+
 ### 3.5 Deploy
 
 ```bash
@@ -657,6 +684,59 @@ Show the before/after diff of the instruction text in the `.agent` output before
 # Deploy and activate
 ~/.claude/agentforce-md/bin/agentforce-md deploy --api-name <AgentName> -o <org> --activate
 ```
+
+**If `--activate` fails with `duplicate value found: GenAiPluginDefinition`:**
+
+This happens when a previous failed publish left an orphaned draft. Use the bundle deploy fallback:
+
+```bash
+sf project deploy start --metadata "AiAuthoringBundle:<AgentName>" -o <org>
+```
+
+> ⚠️ **Important:** `sf project deploy start` deploys the bundle file to the org's metadata store but does **not** update live `GenAiPluginInstructionDef` records. The publish step is what propagates instruction changes to the LLM prompt. If you need the instruction changes to take effect immediately without going through publish, use Phase 3.5b below.
+
+### 3.5b Update instructions directly via Tooling API (bypass publish)
+
+When `agentforce-md deploy --activate` and `sf project deploy start` both fail to update the live instruction records, use the Tooling API to PATCH `GenAiPluginInstructionDef` directly. This is the **only reliable method** — Apex DML is blocked on this object (`DML operation Update not allowed on List<GenAiPluginInstructionDef>`).
+
+```bash
+# First, get the InstructionDef ID from Phase 1.5b Step 3 query results
+# (you already have this from the config evidence step)
+
+# Patch the Description field with the new instruction text
+sf api request rest \
+  "/services/data/v66.0/tooling/sobjects/GenAiPluginInstructionDef/<InstructionDefId>" \
+  --method PATCH \
+  --body '{"Description": "<new instruction text — escape quotes with backslash>"}' \
+  -o <org>
+```
+
+For multi-line instruction text, write the body to a temp file first:
+
+```bash
+# Write the body to a JSON file to avoid shell quoting issues
+cat > /tmp/patch_body.json <<'EOF'
+{
+  "Description": "Collect the customer's name and email using CollectCustomerInfo.\nDo not proceed until both fields are provided.\nAfter collection, route to schedule_test_drive."
+}
+EOF
+
+sf api request rest \
+  "/services/data/v66.0/tooling/sobjects/GenAiPluginInstructionDef/<InstructionDefId>" \
+  --method PATCH \
+  --body "$(cat /tmp/patch_body.json)" \
+  -o <org>
+```
+
+A successful PATCH returns HTTP 204 No Content (empty response body). Verify by re-querying:
+
+```bash
+sf data query \
+  --query "SELECT Id, Instruction FROM GenAiPluginInstructionDef WHERE Id = '<InstructionDefId>'" \
+  -o <org> --json
+```
+
+> **Note:** The Tooling API field name is `Description` (the external-facing name). The SOQL field name on the same object is `Instruction`. Both refer to the same underlying text that gets injected into the LLM prompt.
 
 ### 3.6 Verify
 
