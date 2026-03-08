@@ -274,6 +274,14 @@ Wait for user confirmation or corrections before proceeding.
 
 ### 2B.2 Generate Apex action class
 
+> **Number type warning:** If a SKILL.md input has `type: number`, use `String` for the `@InvocableVariable` type and parse to `Decimal` inside the method body. Agent Script publish validation may reject `Decimal`/`Integer` as `@InvocableVariable` types. Example:
+> ```apex
+> @InvocableVariable(label='Quantity' required=true)
+> public String quantity;  // String, not Decimal
+> // Inside execute():
+> Decimal qty = Decimal.valueOf(input.quantity);
+> ```
+
 Output: `force-app/main/default/classes/<SkillName>Action.cls`
 
 Create the `force-app/main/default/classes/` directory if it does not exist.
@@ -321,6 +329,44 @@ Output: `force-app/main/default/classes/<SkillName>Action.cls-meta.xml`
 </ApexClass>
 ```
 
+### 2B.3.1 Generate Apex test class
+
+Output: `force-app/main/default/classes/<SkillName>ActionTest.cls` + `<SkillName>ActionTest.cls-meta.xml`
+
+Generate a companion `@isTest` class for the Apex action:
+
+```apex
+@isTest
+private class <SkillName>ActionTest {
+
+    private class MockHttpResponse implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            HttpResponse res = new HttpResponse();
+            res.setStatusCode(200);
+            res.setBody('{"status":"ok"}');
+            return res;
+        }
+    }
+
+    @isTest
+    static void testInvoke() {
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponse());
+
+        <SkillName>Action.Input inp = new <SkillName>Action.Input();
+        // Set each input field with a test value
+        inp.<param> = 'test_value';
+
+        List<<SkillName>Action.Input> inputs = new List<<SkillName>Action.Input>{ inp };
+        List<<SkillName>Action.Output> outputs = <SkillName>Action.execute(inputs);
+
+        System.assertNotEquals(null, outputs, 'Response list should not be null');
+        System.assertEquals(1, outputs.size(), 'Should return one response');
+    }
+}
+```
+
+Also generate the matching `.cls-meta.xml` (same format as 2B.3).
+
 ### 2B.4 Generate Remote Site Settings
 
 For each unique base domain extracted from the skill URLs, output:
@@ -338,6 +384,31 @@ Create the `force-app/main/default/remoteSiteSettings/` directory if it does not
     <description>Remote site for <skill-name> Apex callout</description>
 </RemoteSiteSetting>
 ```
+
+### 2B.4.1 Generate Permission Set
+
+Output: `force-app/main/default/permissionsets/<SkillName>_Action_Access.permissionset-meta.xml`
+
+Create the `force-app/main/default/permissionsets/` directory if it does not exist.
+
+Generate a permission set granting the Agent Service Account (ASA) user access to the Apex classes:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label><SkillName>_Action_Access</label>
+    <classAccesses>
+        <apexClass><SkillName>Action</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass><SkillName>ActionTest</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+</PermissionSet>
+```
+
+Include both the action class and its test class in `classAccesses`.
 
 ### 2B.5 Generate Custom Metadata Type for API keys (optional)
 
@@ -441,7 +512,10 @@ Migration complete for: <skill-name>  [<Local|Global> skill]
 Files created/updated:
   force-app/main/default/classes/<SkillName>Action.cls
   force-app/main/default/classes/<SkillName>Action.cls-meta.xml
+  force-app/main/default/classes/<SkillName>ActionTest.cls
+  force-app/main/default/classes/<SkillName>ActionTest.cls-meta.xml
   force-app/main/default/remoteSiteSettings/<SafeDomainName>.remoteSite-meta.xml
+  force-app/main/default/permissionsets/<SkillName>_Action_Access.permissionset-meta.xml
   force-app/main/default/objects/<servicename>__mdt/  (if API key detected)
   force-app/main/default/customMetadata/<servicename>.key.md-meta.xml  (if API key detected)
   .claude/agents/<skill-name>.md  (created / updated)
@@ -457,8 +531,10 @@ Required manual steps:
      Create a Named Credential in Setup → Security → Named Credentials
      Then replace the hardcoded endpoint with: callout:<CredentialName>/path
   4. Deploy metadata: sf project deploy start --source-dir force-app/main/default -o <org>
-  5. Run agentforce-convert to wire the topic into the Agent Script (GenAiPlannerBundle)
-  6. Deploy the updated agent bundle to the org
+  5. Run Apex tests: sf apex run test -n <SkillName>ActionTest -o <org> --wait 5
+  6. Assign permission set: sf org assign permset -n <SkillName>_Action_Access -o <org>
+  7. Run agentforce-convert to wire the topic into the Agent Script (GenAiPlannerBundle)
+  8. Deploy the updated agent bundle to the org
 ```
 
 ---
@@ -503,7 +579,10 @@ When a skill is classified as `Complex (MCP)` (contains `mcp__*` tool reference 
 | Simple or Complex | `<source SKILL.md path>` — local `.claude/skills/…` or global `~/.claude/skills/…` |
 | Complex | `force-app/main/default/classes/<SkillName>Action.cls` (`with sharing`) |
 | Complex | `force-app/main/default/classes/<SkillName>Action.cls-meta.xml` |
+| Complex | `force-app/main/default/classes/<SkillName>ActionTest.cls` (`@isTest`) |
+| Complex | `force-app/main/default/classes/<SkillName>ActionTest.cls-meta.xml` |
 | Complex | `force-app/main/default/remoteSiteSettings/<SafeDomainName>.remoteSite-meta.xml` |
+| Complex | `force-app/main/default/permissionsets/<SkillName>_Action_Access.permissionset-meta.xml` |
 | Complex (optional) | `force-app/main/default/objects/<servicename>__mdt/<servicename>__mdt.object-meta.xml` |
 | Complex (optional) | `force-app/main/default/customMetadata/<servicename>.key.md-meta.xml` |
 
@@ -515,14 +594,24 @@ The agent topic file (`.claude/agents/`) is always written to the **current proj
 
 ## Deployment Notes
 
-**Deploy in two steps:**
+**Deploy in four steps:**
 
-1. **Platform metadata first** — deploy Apex classes, Remote Site Settings, Custom Metadata, and GenAiPromptTemplates:
+1. **Platform metadata first** — deploy Apex classes, Remote Site Settings, Custom Metadata, Permission Sets, and GenAiPromptTemplates:
    ```bash
    sf project deploy start --source-dir force-app/main/default -o <org>
    ```
 
-2. **Agent wiring second** — run `agentforce-convert` to regenerate the Agent Script (GenAiPlannerBundle), then deploy the bundle:
+2. **Run Apex tests** — validate the Apex action compiles and the test class passes:
+   ```bash
+   sf apex run test -n <SkillName>ActionTest -o <org> --wait 5
+   ```
+
+3. **Assign permission set** — grant the Agent Service Account (ASA) user access to the Apex classes:
+   ```bash
+   sf org assign permset -n <PermSetName> -o <org>
+   ```
+
+4. **Agent wiring** — run `agentforce-convert` to regenerate the Agent Script (GenAiPlannerBundle), then deploy the bundle:
    ```bash
    sf project deploy start --source-dir force-app/main/default/genAiPlannerBundles -o <org>
    ```

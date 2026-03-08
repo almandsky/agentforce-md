@@ -303,13 +303,33 @@ def _cmd_deploy(args: argparse.Namespace) -> int:
         skip_retrieve=args.skip_retrieve,
     )
     if result.returncode != 0:
-        print("Publish failed:", file=sys.stderr)
-        if result.stderr:
-            print(result.stderr, file=sys.stderr)
-        if result.stdout:
-            print(result.stdout, file=sys.stderr)
-        return 1
-    print("Bundle published — agent is now visible in the org.")
+        # Check if it's just a cosmetic retrieval warning (agent published OK)
+        try:
+            data = json.loads(result.stdout)
+            if data.get("status") == 0:
+                # Publish succeeded, retrieve failed — warn but don't error
+                print("Bundle published — agent is now visible in the org.")
+                print(
+                    "Note: metadata retrieval step failed (cosmetic). "
+                    "Run with --skip-retrieve to avoid this.",
+                    file=sys.stderr,
+                )
+            else:
+                print("Publish failed:", file=sys.stderr)
+                if result.stderr:
+                    print(result.stderr, file=sys.stderr)
+                if result.stdout:
+                    print(result.stdout, file=sys.stderr)
+                return 1
+        except (json.JSONDecodeError, KeyError):
+            print("Publish failed:", file=sys.stderr)
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
+            if result.stdout:
+                print(result.stdout, file=sys.stderr)
+            return 1
+    else:
+        print("Bundle published — agent is now visible in the org.")
 
     # Optional: Activate
     if args.activate:

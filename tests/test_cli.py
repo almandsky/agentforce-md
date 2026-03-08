@@ -173,6 +173,48 @@ class TestDeployCommand:
             rc = main(["deploy", "--api-name", "MyAgent", "-o", "TestOrg", "--dry-run"])
             assert rc == 1
 
+    def test_deploy_cosmetic_retrieve_failure(self, capsys):
+        """Returncode=1 but JSON status=0 is a cosmetic error — should succeed."""
+        with patch("scripts.cli.SfAgentCli") as MockCli:
+            instance = MockCli.return_value
+            instance.publish_bundle.return_value = MagicMock(
+                returncode=1,
+                stdout=json.dumps({"status": 0, "message": "Metadata retrieval failed"}),
+                stderr="Warning: retrieve step failed",
+            )
+
+            rc = main(["deploy", "--api-name", "MyAgent", "-o", "TestOrg"])
+            assert rc == 0
+            captured = capsys.readouterr()
+            assert "Bundle published" in captured.out
+            assert "cosmetic" in captured.err
+
+    def test_deploy_real_failure_with_json_status(self, capsys):
+        """Returncode=1 with JSON status=1 is a real failure."""
+        with patch("scripts.cli.SfAgentCli") as MockCli:
+            instance = MockCli.return_value
+            instance.publish_bundle.return_value = MagicMock(
+                returncode=1,
+                stdout=json.dumps({"status": 1, "message": "Compile error"}),
+                stderr="Error",
+            )
+
+            rc = main(["deploy", "--api-name", "MyAgent", "-o", "TestOrg"])
+            assert rc == 1
+
+    def test_deploy_failure_unparseable_json(self):
+        """Returncode=1 with non-JSON stdout is treated as failure."""
+        with patch("scripts.cli.SfAgentCli") as MockCli:
+            instance = MockCli.return_value
+            instance.publish_bundle.return_value = MagicMock(
+                returncode=1,
+                stdout="not json at all",
+                stderr="Error",
+            )
+
+            rc = main(["deploy", "--api-name", "MyAgent", "-o", "TestOrg"])
+            assert rc == 1
+
 
 class TestPreviewCommand:
     def test_preview_success(self):

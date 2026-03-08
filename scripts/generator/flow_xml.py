@@ -98,6 +98,18 @@ def generate_flow_xml(
             lines.append(f'        <description>{_escape_xml(out.description)}</description>')
         lines.append('    </variables>')
 
+    # When no outputs, declare a placeholder variable so the assignment is valid
+    if not outputs:
+        lines.extend([
+            '    <variables>',
+            '        <name>placeholder_result</name>',
+            '        <dataType>String</dataType>',
+            '        <isCollection>false</isCollection>',
+            '        <isInput>false</isInput>',
+            '        <isOutput>true</isOutput>',
+            '    </variables>',
+        ])
+
     # Placeholder assignment element
     lines.extend([
         '    <assignments>',
@@ -114,6 +126,16 @@ def generate_flow_xml(
             f'            <assignToReference>{out.name}</assignToReference>',
             '            <operator>Assign</operator>',
             f'            <value>{_default_value_element(out.output_type)}</value>',
+            '        </assignmentItems>',
+        ])
+
+    if not outputs:
+        # Must have at least one assignmentItem — use a placeholder variable
+        lines.extend([
+            '        <assignmentItems>',
+            '            <assignToReference>placeholder_result</assignToReference>',
+            '            <operator>Assign</operator>',
+            '            <value><stringValue>TODO</stringValue></value>',
             '        </assignmentItems>',
         ])
 

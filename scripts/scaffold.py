@@ -8,7 +8,9 @@ from pathlib import Path
 
 from .discover import DiscoveryReport, TargetStatus, discover
 from .generator.apex_stub import generate_apex_class, generate_apex_meta_xml
+from .generator.apex_test_stub import generate_apex_test_class
 from .generator.flow_xml import generate_flow_xml
+from .generator.permission_set_xml import generate_permission_set_xml
 from .parser.skill_md import discover_skills, parse_skill_md
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,7 @@ def scaffold(
         output_dir = Path.cwd() / "force-app" / "main" / "default"
 
     result = ScaffoldResult()
+    apex_class_names: list[str] = []
 
     # Build a lookup from target to action definition (for inputs/outputs)
     skill_actions = _load_skill_actions(project_root)
@@ -49,6 +52,8 @@ def scaffold(
         inputs = action_def.inputs if action_def else []
         outputs = action_def.outputs if action_def else []
 
+        _warn_number_inputs(target_status.skill_name, inputs, result)
+
         if target_status.target_type == "flow":
             _scaffold_flow(
                 target_status, inputs, outputs, output_dir, result,
@@ -57,11 +62,15 @@ def scaffold(
             _scaffold_apex(
                 target_status, inputs, outputs, output_dir, result,
             )
+            apex_class_names.append(target_status.target_name)
         else:
             result.warnings.append(
                 f"Unsupported target type '{target_status.target_type}' "
                 f"for {target_status.skill_name} — skipping"
             )
+
+    if apex_class_names:
+        _scaffold_permission_set(apex_class_names, output_dir, result)
 
     return result
 
@@ -102,6 +111,7 @@ def scaffold_all(
         output_dir = Path.cwd() / "force-app" / "main" / "default"
 
     result = ScaffoldResult()
+    apex_class_names: list[str] = []
     skill_actions = _load_skill_actions(project_root)
 
     for skill_name, action_def in skill_actions.items():
@@ -110,6 +120,8 @@ def scaffold_all(
 
         from .discover import _parse_target
         target_type, target_name = _parse_target(action_def.target)
+
+        _warn_number_inputs(skill_name, action_def.inputs, result)
 
         ts = TargetStatus(
             skill_name=skill_name,
@@ -124,10 +136,14 @@ def scaffold_all(
             _scaffold_flow(ts, action_def.inputs, action_def.outputs, output_dir, result)
         elif target_type == "apex":
             _scaffold_apex(ts, action_def.inputs, action_def.outputs, output_dir, result)
+            apex_class_names.append(target_name)
         else:
             result.warnings.append(
                 f"Unsupported target type '{target_type}' for {skill_name} — skipping"
             )
+
+    if apex_class_names:
+        _scaffold_permission_set(apex_class_names, output_dir, result)
 
     return result
 
@@ -162,7 +178,7 @@ def _scaffold_apex(
     output_dir: Path,
     result: ScaffoldResult,
 ) -> None:
-    """Generate an Apex class stub + meta XML."""
+    """Generate an Apex class stub + meta XML + test class + test meta."""
     classes_dir = output_dir / "classes"
     classes_dir.mkdir(parents=True, exist_ok=True)
 
@@ -181,7 +197,62 @@ def _scaffold_apex(
     meta_path.write_text(meta_content, encoding="utf-8")
     result.files_created.append(meta_path)
 
-    logger.info("Created apex stub: %s + meta", cls_path)
+    # Test class
+    test_cls_content = generate_apex_test_class(
+        class_name=target.target_name,
+        inputs=inputs,
+        outputs=outputs,
+    )
+    test_cls_path = classes_dir / f"{target.target_name}Test.cls"
+    test_cls_path.write_text(test_cls_content, encoding="utf-8")
+    result.files_created.append(test_cls_path)
+
+    test_meta_path = classes_dir / f"{target.target_name}Test.cls-meta.xml"
+    test_meta_path.write_text(meta_content, encoding="utf-8")
+    result.files_created.append(test_meta_path)
+
+    logger.info("Created apex stub: %s + test + meta", cls_path)
+
+
+def _scaffold_permission_set(
+    apex_class_names: list[str],
+    output_dir: Path,
+    result: ScaffoldResult,
+) -> None:
+    """Generate a Permission Set XML granting classAccesses."""
+    perm_sets_dir = output_dir / "permissionsets"
+    perm_sets_dir.mkdir(parents=True, exist_ok=True)
+
+    perm_set_name = "Agent_Action_Access"
+
+    # Include both action classes and their test classes
+    all_classes = []
+    for name in apex_class_names:
+        all_classes.append(name)
+        all_classes.append(f"{name}Test")
+
+    xml_content = generate_permission_set_xml(perm_set_name, all_classes)
+
+    perm_set_path = perm_sets_dir / f"{perm_set_name}.permissionset-meta.xml"
+    perm_set_path.write_text(xml_content, encoding="utf-8")
+    result.files_created.append(perm_set_path)
+
+    logger.info("Created permission set: %s", perm_set_path)
+
+
+def _warn_number_inputs(
+    skill_name: str,
+    inputs: list,
+    result: ScaffoldResult,
+) -> None:
+    """Emit a warning for inputs with number type."""
+    for inp in inputs:
+        if getattr(inp, "input_type", None) == "number":
+            result.warnings.append(
+                f"{skill_name} uses 'number' type for input '{inp.name}'. "
+                "Agent Script may reject Decimal — consider using 'string' "
+                "type and parsing manually in Apex."
+            )
 
 
 def _load_skill_actions(project_root: Path) -> dict:
