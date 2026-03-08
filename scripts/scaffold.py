@@ -108,12 +108,14 @@ def scaffold_from_skills(
 def scaffold_all(
     project_root: Path,
     output_dir: Path | None = None,
+    target_org: str | None = None,
 ) -> ScaffoldResult:
     """Scaffold all targets without checking the org.
 
     Args:
         project_root: Root of the Claude Code project.
         output_dir: Where to write stubs.
+        target_org: Target org (enables smart scaffold with SObject describe).
 
     Returns:
         ScaffoldResult with list of created files.
@@ -134,6 +136,8 @@ def scaffold_all(
 
         _warn_number_inputs(skill_name, action_def.inputs, result)
 
+        sobject = action_def.sobject
+
         ts = TargetStatus(
             skill_name=skill_name,
             target=action_def.target,
@@ -144,9 +148,15 @@ def scaffold_all(
         )
 
         if target_type == "flow":
-            _scaffold_flow(ts, action_def.inputs, action_def.outputs, output_dir, result)
+            _scaffold_flow(
+                ts, action_def.inputs, action_def.outputs, output_dir, result,
+                target_org=target_org, sobject=sobject,
+            )
         elif target_type == "apex":
-            _scaffold_apex(ts, action_def.inputs, action_def.outputs, output_dir, result)
+            _scaffold_apex(
+                ts, action_def.inputs, action_def.outputs, output_dir, result,
+                target_org=target_org, sobject=sobject,
+            )
             apex_class_names.append(target_name)
         else:
             result.warnings.append(

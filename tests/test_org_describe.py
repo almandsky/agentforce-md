@@ -11,6 +11,7 @@ from scripts.org_describe import (
     FieldInfo,
     FieldMapping,
     _find_best_match,
+    _is_computed_output,
     _normalize,
     describe_sobject,
     match_fields,
@@ -194,3 +195,70 @@ def test_find_best_match_no_match():
     lookup = {_normalize("State__c"): FieldInfo("State__c", "State", "Text", True)}
     result = _find_best_match("completely_unrelated_xyz", lookup)
     assert result is None
+
+
+def test_find_best_match_prefers_label_over_loose_api_name():
+    """When 'state' is the input, prefer BillingState (label='Billing State') over Site."""
+    fields = [
+        FieldInfo("Site", "Account Site", "Text", True),
+        FieldInfo("BillingState", "Billing State", "Text", True),
+        FieldInfo("ShippingState", "Shipping State", "Text", True),
+    ]
+    result = _find_best_match("state", fields)
+    assert result is not None
+    # Should pick BillingState or ShippingState (both have "state" in the name),
+    # NOT Site (which was the old incorrect match)
+    assert "State" in result.name
+
+
+def test_find_best_match_with_list():
+    """_find_best_match works with a list of FieldInfo."""
+    fields = [
+        FieldInfo("Name", "Name", "Text", True),
+        FieldInfo("State__c", "State", "Text", True),
+    ]
+    result = _find_best_match("state", fields)
+    assert result is not None
+    assert result.name == "State__c"
+
+
+def test_find_best_match_label_exact():
+    """Exact label match works."""
+    fields = [
+        FieldInfo("Billing_City__c", "City", "Text", True),
+    ]
+    result = _find_best_match("city", fields)
+    assert result is not None
+    assert result.name == "Billing_City__c"
+
+
+# --- _is_computed_output tests ---
+
+
+def test_computed_output_json_suffix():
+    assert _is_computed_output("results_json") is True
+
+
+def test_computed_output_total_count():
+    assert _is_computed_output("total_count") is True
+
+
+def test_computed_output_regular_field():
+    assert _is_computed_output("state") is False
+    assert _is_computed_output("price") is False
+
+
+def test_match_fields_skips_computed_outputs():
+    """Computed outputs like results_json and total_count are not matched to fields."""
+    inputs = [ActionInput(name="state", input_type="string")]
+    outputs = [
+        ActionOutput(name="results_json", output_type="string"),
+        ActionOutput(name="total_count", output_type="string"),
+    ]
+    fields = _sample_fields()
+
+    mapping = match_fields(inputs, outputs, fields)
+
+    # These should NOT be in output_mappings — they are computed
+    assert "results_json" not in mapping.output_mappings
+    assert "total_count" not in mapping.output_mappings

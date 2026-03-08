@@ -102,6 +102,22 @@ def _normalize(name: str) -> str:
     return name.replace("_", " ").lower().strip()
 
 
+# Output name patterns that are computed (not direct SObject fields).
+# These should be handled by the generator's unmapped-output heuristics.
+_COMPUTED_SUFFIXES = ("_json", "_list", "_xml", "_csv")
+_COMPUTED_PATTERNS = ("total_count", "result_count", "record_count", "error_message")
+
+
+def _is_computed_output(name: str) -> bool:
+    """Check if an output name looks like a computed value rather than a field."""
+    lower = name.lower()
+    if any(lower.endswith(s) for s in _COMPUTED_SUFFIXES):
+        return True
+    if lower in _COMPUTED_PATTERNS:
+        return True
+    return False
+
+
 def match_fields(
     inputs: list[ActionInput],
     outputs: list[ActionOutput],
@@ -122,20 +138,22 @@ def match_fields(
     """
     mapping = FieldMapping()
 
-    # Build lookup of normalized field names
-    filterable_fields = {_normalize(f.name): f for f in fields if f.filterable}
-    all_fields = {_normalize(f.name): f for f in fields}
+    # Build field lists by filterability
+    filterable = [f for f in fields if f.filterable]
+    all_fields_list = fields
 
     # Match inputs to filterable fields
     for inp in inputs:
-        matched = _find_best_match(inp.name, filterable_fields)
+        matched = _find_best_match(inp.name, filterable)
         if matched:
             mapping.input_mappings[inp.name] = matched.name
             mapping.where_fields.append(matched.name)
 
-    # Match outputs to any fields
+    # Match outputs to any fields (skip computed-output patterns)
     for out in outputs:
-        matched = _find_best_match(out.name, all_fields)
+        if _is_computed_output(out.name):
+            continue
+        matched = _find_best_match(out.name, all_fields_list)
         if matched:
             mapping.output_mappings[out.name] = matched.name
             mapping.select_fields.append(matched.name)
@@ -150,26 +168,64 @@ def match_fields(
 
 def _find_best_match(
     input_name: str,
-    field_lookup: dict[str, FieldInfo],
-    threshold: float = 0.5,
+    fields: list[FieldInfo] | dict[str, FieldInfo],
+    threshold: float = 0.6,
 ) -> FieldInfo | None:
     """Find the best matching field for an input/output name.
 
+    Matches against both API name and label for better accuracy.
     First tries exact normalized match, then falls back to fuzzy matching.
+
+    Accepts either a list of FieldInfo or a dict (normalized_name -> FieldInfo)
+    for backward compatibility.
     """
     normalized_input = _normalize(input_name)
 
-    # Exact normalized match
-    if normalized_input in field_lookup:
-        return field_lookup[normalized_input]
+    # Support both list and dict inputs
+    if isinstance(fields, dict):
+        field_list = list(fields.values())
+        # Exact match against dict keys
+        if normalized_input in fields:
+            return fields[normalized_input]
+    else:
+        field_list = fields
 
-    # Fuzzy match
+    # Exact normalized match against API name or label
+    for fi in field_list:
+        if _normalize(fi.name) == normalized_input:
+            return fi
+        if fi.label and fi.label.lower().replace(" ", " ") == normalized_input:
+            return fi
+
+    # Fuzzy match — check API name, label, and word containment
     best_score = 0.0
     best_field: FieldInfo | None = None
-    for norm_name, field_info in field_lookup.items():
-        score = difflib.SequenceMatcher(None, normalized_input, norm_name).ratio()
+    for fi in field_list:
+        norm_name = _normalize(fi.name)
+        norm_label = fi.label.lower() if fi.label else ""
+
+        # Sequence similarity against API name and label
+        name_score = difflib.SequenceMatcher(
+            None, normalized_input, norm_name,
+        ).ratio()
+        label_score = difflib.SequenceMatcher(
+            None, normalized_input, norm_label,
+        ).ratio() if norm_label else 0.0
+
+        # Word containment bonus: if the input appears as a complete word
+        # in the field name or label, boost the score significantly.
+        # This makes "state" prefer "BillingState" over "Site".
+        name_words = norm_name.split()
+        label_words = norm_label.split()
+        input_words = normalized_input.split()
+        if any(w in name_words for w in input_words):
+            name_score = max(name_score, 0.8)
+        if any(w in label_words for w in input_words):
+            label_score = max(label_score, 0.8)
+
+        score = max(name_score, label_score)
         if score > best_score and score >= threshold:
             best_score = score
-            best_field = field_info
+            best_field = fi
 
     return best_field

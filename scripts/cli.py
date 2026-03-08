@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         default=Path("."),
         help="Root of the Claude Code project (default: current dir)",
     )
-    scaffold_parser.add_argument("-o", "--target-org", required=True, help="Target Salesforce org")
+    scaffold_parser.add_argument("-o", "--target-org", help="Target Salesforce org (required unless --skip-discover)")
     scaffold_parser.add_argument(
         "--output-dir",
         type=Path,
@@ -548,9 +548,14 @@ def _cmd_scaffold(args: argparse.Namespace) -> int:
     project_root = args.project_root.resolve()
     output_dir = args.output_dir.resolve() if args.output_dir else None
 
+    if not args.skip_discover and not args.target_org:
+        print("Error: --target-org / -o is required (unless using --skip-discover).",
+              file=sys.stderr)
+        return 1
+
     if args.skip_discover:
         print("Scaffolding all targets (skipping org check)...")
-        result = scaffold_all(project_root, output_dir)
+        result = scaffold_all(project_root, output_dir, target_org=args.target_org)
     else:
         print(f"Discovering targets in {args.target_org}...")
         result = scaffold_from_skills(project_root, args.target_org, output_dir)
