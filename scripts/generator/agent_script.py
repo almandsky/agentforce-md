@@ -370,8 +370,20 @@ class AgentScriptGenerator:
 
 
 def _escape(text: str) -> str:
-    """Escape quotes in a string for Agent Script output."""
-    return text.replace('"', '\\"')
+    """Escape and sanitize strings for Agent Script quoted output."""
+    if not text:
+        return ""
+    # Replace em dashes with spaced double-hyphen (lexer-safe)
+    text = text.replace("\u2014", " -- ")
+    # Replace en dashes too
+    text = text.replace("\u2013", "-")
+    # Collapse newlines to spaces (descriptions must be single-line)
+    text = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    # Escape double quotes
+    text = text.replace('"', '\\"')
+    # Collapse multiple spaces
+    text = " ".join(text.split())
+    return text
 
 
 def _bool(value: bool) -> str:

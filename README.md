@@ -125,7 +125,14 @@ python3 ~/.claude/agentforce-md-install.py --status
 python3 ~/.claude/agentforce-md-install.py --uninstall
 ```
 
-After installation, restart Claude Code. The `/agentforce-convert`, `/agentforce-discover`, `/agentforce-scaffold`, and `/agentforce-run` skills will be available in any project.
+After installation, restart Claude Code. The following skills will be available in any project:
+
+- `/agentforce-convert` — Full round-trip: generate markdown, convert to Agent Script, deploy
+- `/agentforce-discover` — Check which SKILL.md targets exist in an org
+- `/agentforce-scaffold` — Generate stub metadata for missing targets
+- `/agentforce-run` — Execute a single action against a live org
+- `/agentforce-optimize` — Analyze session traces from Data Cloud, reproduce issues, improve the agent
+- `/agentforce-skill-migrate` — Discover Claude Code skills and migrate them to Agentforce as Prompt Templates or Apex callout actions
 
 ### Recommended: install sf-skills
 
@@ -548,6 +555,8 @@ Invokes the flow or apex action via REST API and returns the output values.
   agentforce-discover/SKILL.md    #   Check org for SKILL.md targets
   agentforce-scaffold/SKILL.md    #   Generate stub metadata
   agentforce-run/SKILL.md         #   Execute actions via REST API
+  agentforce-optimize/SKILL.md    #   Session trace analysis & agent improvement
+  agentforce-skill-migrate/SKILL.md # Migrate skills to Agentforce
 
 bin/
   agentforce-md                   # CLI wrapper script (uses bundled venv)
@@ -601,6 +610,8 @@ After installation, the layout under `~/.claude/` is:
 │   ├── agentforce-discover/
 │   ├── agentforce-scaffold/
 │   ├── agentforce-run/
+│   ├── agentforce-optimize/
+│   ├── agentforce-skill-migrate/
 │   └── sf-*/                     # sf-skills (untouched)
 ├── .agentforce-md.json           # Version + install metadata
 └── agentforce-md-install.py      # Self-updater

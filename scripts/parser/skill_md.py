@@ -82,6 +82,7 @@ def parse_skill_md(path: Path) -> ActionDefinition | None:
         include_in_progress_indicator=ag.get("include_in_progress_indicator", False),
         progress_indicator_message=ag.get("progress_indicator_message"),
         source=ag.get("source"),
+        sobject=ag.get("sobject"),
     )
 
 

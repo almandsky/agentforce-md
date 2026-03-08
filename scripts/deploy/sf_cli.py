@@ -216,6 +216,27 @@ class SfAgentCli:
             "--json",
         ])
 
+    def list_resources(self, resource_type: str, target_org: str) -> CliResult:
+        """Query all resources of a type for suggestion matching.
+
+        Args:
+            resource_type: One of 'flow', 'apex', 'retriever'.
+            target_org: Target org username or alias.
+        """
+        queries = {
+            "flow": (
+                "SELECT ApiName FROM FlowDefinitionView "
+                "WHERE ProcessType IN ('AutoLaunchedFlow','Flow') "
+                "AND IsActive = true"
+            ),
+            "apex": "SELECT Name FROM ApexClass",
+            "retriever": "SELECT DeveloperName FROM GenAiPromptTemplate",
+        }
+        query = queries.get(resource_type)
+        if not query:
+            return CliResult(returncode=1, stdout="", stderr=f"Unknown resource type: {resource_type}")
+        return self.query_soql(query, target_org)
+
     def query_soql(self, query: str, target_org: str) -> CliResult:
         """Run a SOQL query against the org.
 

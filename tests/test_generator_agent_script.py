@@ -1,6 +1,6 @@
 """Tests for Agent Script generator."""
 
-from scripts.generator.agent_script import AgentScriptGenerator
+from scripts.generator.agent_script import AgentScriptGenerator, _escape
 from scripts.ir.models import (
     ActionDefinition,
     ActionInput,
@@ -629,6 +629,36 @@ def test_no_after_reasoning_block_when_empty():
     gen = AgentScriptGenerator(agent)
     output = gen.generate()
     assert "after_reasoning:" not in output
+
+
+def test_escape_em_dash():
+    """Em dash (U+2014) is replaced with spaced double-hyphen."""
+    assert _escape("before\u2014after") == "before -- after"
+
+
+def test_escape_en_dash():
+    """En dash (U+2013) is replaced with a plain hyphen."""
+    assert _escape("pages 1\u201310") == "pages 1-10"
+
+
+def test_escape_newlines():
+    """Newlines are collapsed to single spaces."""
+    assert _escape("line one\nline two\r\nline three") == "line one line two line three"
+
+
+def test_escape_multiline_description():
+    """A multi-line YAML description becomes a single clean line."""
+    text = "Help customers with their orders.\nProvide tracking info\nand handle returns."
+    result = _escape(text)
+    assert "\n" not in result
+    assert result == "Help customers with their orders. Provide tracking info and handle returns."
+
+
+def test_escape_combined():
+    """Em dash + newline + quotes all handled together."""
+    text = 'She said \u2014 "hello"\nand left.'
+    result = _escape(text)
+    assert result == 'She said -- \\"hello\\" and left.'
 
 
 def test_four_space_indentation():

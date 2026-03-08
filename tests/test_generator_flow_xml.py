@@ -153,3 +153,16 @@ def test_flow_number_placeholder_uses_number_value():
     xml = generate_flow_xml("Test", outputs=outputs)
     assert "<numberValue>0</numberValue>" in xml
     assert "<stringValue>0</stringValue>" not in xml
+
+
+def test_flow_no_outputs_has_valid_assignment_items():
+    """When no outputs exist, a placeholder assignmentItem and variable are generated."""
+    xml = generate_flow_xml("No_Outputs_Flow", inputs=[
+        ActionInput(name="order_id", input_type="string"),
+    ])
+    # Must have at least one assignmentItem so the Flow XML is valid
+    assert "<assignmentItems>" in xml
+    assert "<assignToReference>placeholder_result</assignToReference>" in xml
+    # Placeholder variable must be declared
+    assert "<name>placeholder_result</name>" in xml
+    assert "<isOutput>true</isOutput>" in xml
