@@ -10,7 +10,7 @@ argument-hint: "[skill-name | all | discover]"
 Migrate Claude Code SKILL.md files to Salesforce Agentforce by classifying each skill and generating the appropriate Salesforce metadata artifacts.
 
 **Two migration paths:**
-- **Simple skills** (prompt-only, no external deps) → Prompt Template + Prompt Template Action + Agent Script topic
+- **Simple skills** (prompt-only, no external deps) → GenAiPromptTemplate + GenAiFunction action + Agent Script topic
 - **Complex skills** (3rd-party APIs, CLI, MCP) → Apex `@InvocableMethod` callout class + Remote Site Settings + Agent Script topic
 
 ---
@@ -94,7 +94,7 @@ Read the full SKILL.md body for the target skill and evaluate the following sign
 Skill: my-prompt-skill  [Local: .claude/skills/my-prompt-skill/SKILL.md]
   Classification: Simple
   Reason: Body is pure LLM instructions with no external calls.
-  Proposed path: PromptTemplate → PromptTemplate Action → Agent Script topic
+  Proposed path: GenAiPromptTemplate → GenAiFunction action → Agent Script topic
 
 Skill: search-external-api  [Global: ~/.claude/skills/search-external-api/SKILL.md]
   Classification: Complex (API)
@@ -119,36 +119,48 @@ Wait for user confirmation before proceeding to Phase 2A or 2B.
 
 Derive `<SkillName>` by converting the kebab-case skill name to PascalCase (strip hyphens, capitalize each word). For example: `my-prompt-skill` → `MyPromptSkill`.
 
-### 2A.1 Generate Prompt Template XML
+### 2A.1 Generate GenAiPromptTemplate XML
 
-Output: `force-app/main/default/promptTemplates/<SkillName>Prompt.promptTemplate-meta.xml`
+Output: `force-app/main/default/genAiPromptTemplates/<SkillName>Prompt.genAiPromptTemplate-meta.xml`
 
-Create the `force-app/main/default/promptTemplates/` directory if it does not exist.
+Create the `force-app/main/default/genAiPromptTemplates/` directory if it does not exist.
+
+**Important:** The metadata type is `GenAiPromptTemplate` (not `PromptTemplate`). The `promptTemplates/` directory with `.promptTemplate-meta.xml` suffix is NOT recognized by the sf CLI and will cause `TypeInferenceError` during deployment.
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<PromptTemplate xmlns="http://soap.sforce.com/2006/04/metadata">
+<GenAiPromptTemplate xmlns="http://soap.sforce.com/2006/04/metadata">
+    <activeVersionNumber>1</activeVersionNumber>
     <developerName><SkillName>Prompt</developerName>
     <masterLabel><Readable Label from skill name></masterLabel>
     <description><SKILL.md description: value></description>
-    <promptTemplateType>SalesAi</promptTemplateType>
-    <status>Published</status>
-    <versionNumber>1</versionNumber>
-    <content><![CDATA[<full instruction body — everything after frontmatter closing --->]]></content>
-</PromptTemplate>
+    <templateType>einstein__agentAction</templateType>
+    <relatedEntity>N/A</relatedEntity>
+    <versions>
+        <content><![CDATA[<full instruction body — everything after frontmatter closing --->]]></content>
+        <status>Published</status>
+        <versionNumber>1</versionNumber>
+    </versions>
+</GenAiPromptTemplate>
 ```
 
 Populate:
 - `developerName` ← `<SkillName>Prompt` (PascalCase, hyphens stripped)
 - `masterLabel` ← human-readable label derived from the skill name
 - `description` ← `description:` frontmatter value from SKILL.md
+- `templateType` ← `einstein__agentAction` (for use as an Agentforce action)
 - `content` ← full SKILL.md body (all text after the closing `---` of the frontmatter block)
 
-### 2A.2 Generate Prompt Template Action metadata
+### 2A.2 Generate GenAiFunction action metadata (bundle)
 
-Output: `force-app/main/default/genAiFunctions/<SkillName>PromptAction.genAiFunction-meta.xml`
+Output: `force-app/main/default/genAiFunctions/<SkillName>PromptAction/<SkillName>PromptAction.genAiFunction-meta.xml`
 
-Create the `force-app/main/default/genAiFunctions/` directory if it does not exist.
+**Important:** GenAiFunction is a **bundle** metadata type. The file MUST be inside a subdirectory named after the function. A flat file directly in `genAiFunctions/` will cause `ExpectedSourceFilesError` during deployment.
+
+Create the bundle directory structure:
+```bash
+mkdir -p force-app/main/default/genAiFunctions/<SkillName>PromptAction
+```
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -215,15 +227,16 @@ After all files are written, display:
 Migration complete for: <skill-name>  [<Local|Global> skill]
 
 Files created/updated:
-  force-app/main/default/promptTemplates/<SkillName>Prompt.promptTemplate-meta.xml
-  force-app/main/default/genAiFunctions/<SkillName>PromptAction.genAiFunction-meta.xml
+  force-app/main/default/genAiPromptTemplates/<SkillName>Prompt.genAiPromptTemplate-meta.xml
+  force-app/main/default/genAiFunctions/<SkillName>PromptAction/<SkillName>PromptAction.genAiFunction-meta.xml
   .claude/agents/<skill-name>.md  (created / updated)
   <source SKILL.md path>  (agentforce: target: added)
 
 Next steps:
-  1. Deploy: sf project deploy start --source-dir force-app/main/default -o <org>
-  2. Verify template in Setup → Einstein → Prompt Builder
-  3. Run agentforce-convert to wire the topic into the Agent Script
+  1. Deploy metadata: sf project deploy start --source-dir force-app/main/default -o <org>
+  2. Run agentforce-convert to wire the topic into the Agent Script (GenAiPlannerBundle)
+  3. Deploy the updated agent bundle to the org
+  4. Verify template in Setup → Einstein → Prompt Builder
 ```
 
 ---
@@ -266,7 +279,7 @@ Output: `force-app/main/default/classes/<SkillName>Action.cls`
 Create the `force-app/main/default/classes/` directory if it does not exist.
 
 ```apex
-public class <SkillName>Action {
+public with sharing class <SkillName>Action {
 
     public class Input {
         @InvocableVariable(label='<param label>' required=true)
@@ -326,7 +339,54 @@ Create the `force-app/main/default/remoteSiteSettings/` directory if it does not
 </RemoteSiteSetting>
 ```
 
-### 2B.5 Update source SKILL.md
+### 2B.5 Generate Custom Metadata Type for API keys (optional)
+
+If the skill uses API keys (detected via `API_Key`, `API-Key`, or `X-Api-Key` patterns in the body), generate a Custom Metadata Type to securely store the key instead of hardcoding it. Ask the user if they want to use Custom Metadata or Named Credentials.
+
+**Custom Metadata Type definition:**
+
+Output: `force-app/main/default/objects/<servicename>__mdt/<servicename>__mdt.object-meta.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label><ServiceName></label>
+    <pluralLabel><ServiceName></pluralLabel>
+    <visibility>Protected</visibility>
+    <fields>
+        <fullName>apikey__c</fullName>
+        <label>API Key</label>
+        <type>Text</type>
+        <length>255</length>
+        <externalId>false</externalId>
+    </fields>
+</CustomObject>
+```
+
+**Custom Metadata record (placeholder):**
+
+Output: `force-app/main/default/customMetadata/<servicename>.key.md-meta.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomMetadata xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>key</label>
+    <protected>false</protected>
+    <values>
+        <field>apikey__c</field>
+        <value xsi:type="xsd:string" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">REPLACE_WITH_ACTUAL_KEY</value>
+    </values>
+</CustomMetadata>
+```
+
+Then reference the key in the Apex class via:
+```apex
+String apiKey = <servicename>__mdt.getInstance('key').apikey__c;
+```
+
+Derive `<servicename>` from the API domain or service name (lowercase, underscores, no dots). For example: `api.ydc-index.io` → `youdotcom`.
+
+### 2B.6 Update source SKILL.md
 
 Add `agentforce:` section to the **source** SKILL.md frontmatter. Use the full path recorded in Phase 0 — this will be either the local or global file:
 
@@ -346,7 +406,7 @@ Add one entry under `inputs:` for each identified input parameter, and one entry
 
 **Global skill note:** Writing to `~/.claude/skills/<skill-name>/SKILL.md` marks the skill as migrated globally. It will appear as "Already migrated" in discover across all projects.
 
-### 2B.6 Create or update the topic file
+### 2B.7 Create or update the topic file
 
 The topic file always lives in the **current project's** `.claude/agents/` directory, regardless of whether the skill came from local or global.
 
@@ -371,7 +431,7 @@ agentforce:
 Use `<SkillName>Action` to handle this request.
 ```
 
-### 2B.7 Next steps output
+### 2B.8 Next steps output
 
 After all files are written, display:
 
@@ -382,6 +442,8 @@ Files created/updated:
   force-app/main/default/classes/<SkillName>Action.cls
   force-app/main/default/classes/<SkillName>Action.cls-meta.xml
   force-app/main/default/remoteSiteSettings/<SafeDomainName>.remoteSite-meta.xml
+  force-app/main/default/objects/<servicename>__mdt/  (if API key detected)
+  force-app/main/default/customMetadata/<servicename>.key.md-meta.xml  (if API key detected)
   .claude/agents/<skill-name>.md  (created / updated)
   <source SKILL.md path>  (agentforce: target: added)
 
@@ -389,11 +451,14 @@ Required manual steps:
   1. Fill in the TODO sections in <SkillName>Action.cls:
      - Parse res.getBody() and populate Output fields
      - Add auth headers (Authorization, Content-Type)
-  2. If the API uses OAuth or secret credentials:
+  2. If using Custom Metadata for API key:
+     Update the placeholder value in <servicename>.key.md-meta.xml with the actual key
+  3. If the API uses OAuth or secret credentials:
      Create a Named Credential in Setup → Security → Named Credentials
      Then replace the hardcoded endpoint with: callout:<CredentialName>/path
-  3. Deploy: sf project deploy start --source-dir force-app/main/default -o <org>
-  4. Run agentforce-convert to wire the topic into the Agent Script
+  4. Deploy metadata: sf project deploy start --source-dir force-app/main/default -o <org>
+  5. Run agentforce-convert to wire the topic into the Agent Script (GenAiPlannerBundle)
+  6. Deploy the updated agent bundle to the org
 ```
 
 ---
@@ -432,17 +497,37 @@ When a skill is classified as `Complex (MCP)` (contains `mcp__*` tool reference 
 
 | Path | Files created / updated |
 |---|---|
-| Simple | `force-app/main/default/promptTemplates/<SkillName>Prompt.promptTemplate-meta.xml` |
-| Simple | `force-app/main/default/genAiFunctions/<SkillName>PromptAction.genAiFunction-meta.xml` |
+| Simple | `force-app/main/default/genAiPromptTemplates/<SkillName>Prompt.genAiPromptTemplate-meta.xml` |
+| Simple | `force-app/main/default/genAiFunctions/<SkillName>PromptAction/<SkillName>PromptAction.genAiFunction-meta.xml` (bundle) |
 | Simple or Complex | `.claude/agents/<skill-name>.md` (created or updated — always in current project) |
 | Simple or Complex | `<source SKILL.md path>` — local `.claude/skills/…` or global `~/.claude/skills/…` |
-| Complex | `force-app/main/default/classes/<SkillName>Action.cls` |
+| Complex | `force-app/main/default/classes/<SkillName>Action.cls` (`with sharing`) |
 | Complex | `force-app/main/default/classes/<SkillName>Action.cls-meta.xml` |
 | Complex | `force-app/main/default/remoteSiteSettings/<SafeDomainName>.remoteSite-meta.xml` |
+| Complex (optional) | `force-app/main/default/objects/<servicename>__mdt/<servicename>__mdt.object-meta.xml` |
+| Complex (optional) | `force-app/main/default/customMetadata/<servicename>.key.md-meta.xml` |
 
 All Salesforce metadata output goes under `force-app/main/default/` in the current project. Create the `force-app/` directory structure if it does not already exist.
 
 The agent topic file (`.claude/agents/`) is always written to the **current project**, regardless of whether the skill source was local or global.
+
+---
+
+## Deployment Notes
+
+**Deploy in two steps:**
+
+1. **Platform metadata first** — deploy Apex classes, Remote Site Settings, Custom Metadata, and GenAiPromptTemplates:
+   ```bash
+   sf project deploy start --source-dir force-app/main/default -o <org>
+   ```
+
+2. **Agent wiring second** — run `agentforce-convert` to regenerate the Agent Script (GenAiPlannerBundle), then deploy the bundle:
+   ```bash
+   sf project deploy start --source-dir force-app/main/default/genAiPlannerBundles -o <org>
+   ```
+
+**Bot vs Bundle naming:** The Bot API name (e.g., `MyAgent`) is different from the GenAiPlannerBundle name (e.g., `MyAgent_v1`). Use the Bot name for `sf agent activate/deactivate` and the Bundle name for deployment and retrieval.
 
 ---
 
@@ -451,8 +536,11 @@ The agent topic file (`.claude/agents/`) is always written to the **current proj
 After running `agentforce-skill-migrate <skill-name>`:
 
 1. All files listed above exist with correct content
-2. Source SKILL.md (local or global) has `agentforce: target:` added — confirmed by re-running discover
-3. `sf project deploy start --source-dir force-app/main/default -o <org>` succeeds
-4. `agentforce-convert` includes the new topic and action in the generated `.agent` file
-5. **Simple path**: Prompt Template visible in Setup → Einstein → Prompt Builder
-6. **Complex path**: Apex class passes compilation check in the org after deploy
+2. GenAiFunction files use **bundle** directory structure (subdirectory per function)
+3. GenAiPromptTemplate files use `genAiPromptTemplates/` directory (NOT `promptTemplates/`)
+4. Apex classes include `with sharing` declaration
+5. Source SKILL.md (local or global) has `agentforce: target:` added — confirmed by re-running discover
+6. `sf project deploy start --source-dir force-app/main/default -o <org>` succeeds
+7. `agentforce-convert` includes the new topic and action in the generated `.agent` file
+8. **Simple path**: Prompt Template visible in Setup → Einstein → Prompt Builder
+9. **Complex path**: Apex class passes compilation check in the org after deploy
