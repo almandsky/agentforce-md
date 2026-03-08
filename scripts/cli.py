@@ -117,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     init_parser = subparsers.add_parser("init", help="Initialize from a template")
     init_parser.add_argument(
         "--template",
-        choices=["hello-world", "multi-topic", "verification-gate"],
+        choices=["hello-world", "multi-topic", "verification-gate", "lennar-home-search"],
         default="hello-world",
         help="Template to use (default: hello-world)",
     )

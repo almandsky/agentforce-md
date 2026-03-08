@@ -5,11 +5,14 @@ This is the agentforce-md project: a converter from Claude Code markdown convent
 - `scripts/` — Python package with the converter
   - `scripts/ir/` — Intermediate representation (dataclasses)
   - `scripts/parser/` — Parsers for CLAUDE.md, sub-agent .md, SKILL.md
-  - `scripts/generator/` — Agent Script file generator
+  - `scripts/generator/` — Agent Script file generator (includes smart generators)
   - `scripts/deploy/` — Salesforce CLI wrapper
   - `scripts/convert.py` — Main orchestrator
   - `scripts/cli.py` — CLI entry point
-- `templates/` — Starter templates (hello-world, multi-topic, verification-gate)
+  - `scripts/discover.py` — Org target discovery with fuzzy suggestions
+  - `scripts/scaffold.py` — Metadata stub generation (SObject-aware)
+  - `scripts/org_describe.py` — SObject field describe + field matching
+- `templates/` — Starter templates (hello-world, multi-topic, verification-gate, lennar-home-search)
 - `tests/` — pytest test suite
 - `notes/` — Research and reference docs
 
@@ -69,3 +72,30 @@ python3 tools/install.py --force
 - Service agents auto-add EndUserId, RoutableId, ContactId as linked vars (unless user overrides them)
 - Action-variable bindings (`with`/`set`/`after`) go in sub-agent `.md` frontmatter under `agentforce: bindings:`
 - `available_when` guards on sub-agents control routing from start_agent
+
+## Discover suggestions
+
+When `discover` finds missing targets, it queries the org for all resources of that type and suggests similar ones using fuzzy name matching (difflib + keyword overlap). The CLI shows similarity scores and SKILL.md update instructions.
+
+## Smart scaffold (SObject-aware)
+
+Add `sobject` to a SKILL.md's `agentforce:` section to enable smart scaffold:
+
+```yaml
+agentforce:
+  target: "apex://SearchHomesAction"
+  sobject: "Property__c"       # enables smart scaffold
+  inputs:
+    state:
+      type: string
+  outputs:
+    results_json:
+      type: string
+```
+
+When `scaffold` runs with `--target-org` and the SKILL.md has `sobject`:
+- Queries the org for the SObject's field definitions (`FieldDefinition`)
+- Matches SKILL.md inputs to filterable fields (for WHERE clause)
+- Matches SKILL.md outputs to any fields (for SELECT clause)
+- Generates Apex with real SOQL queries or Flow XML with `<recordLookups>` elements
+- Falls back to empty stubs if no `sobject` or no org connection

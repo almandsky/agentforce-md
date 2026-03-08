@@ -6,7 +6,6 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .deploy.sf_cli import SfAgentCli
 from .discover import DiscoveryReport, TargetStatus, discover
 from .generator.apex_stub import generate_apex_class, generate_apex_meta_xml, generate_smart_apex_class
 from .generator.apex_test_stub import generate_apex_test_class
