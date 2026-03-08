@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -15,6 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class Suggestion:
+    """A similar resource found in the org."""
+    name: str
+    similarity: float  # 0.0 to 1.0
+
+
+@dataclass
 class TargetStatus:
     """Status of a single SKILL.md target in the org."""
     skill_name: str       # e.g. "check-order-status"
@@ -23,6 +31,7 @@ class TargetStatus:
     target_name: str      # "Get_Order_Status"
     found: bool
     details: str          # org metadata match info or "not found"
+    suggestions: list[Suggestion] = field(default_factory=list)
 
 
 @dataclass
@@ -89,8 +98,13 @@ def discover(project_root: Path, target_org: str) -> DiscoveryReport:
     # 4. Build report
     report = DiscoveryReport()
 
+    # Track which types have missing targets (for lazy broad queries)
+    missing_types: set[str] = set()
+
     for target_name, skill_name in flow_targets.items():
         found = flow_results.get(target_name, False)
+        if not found:
+            missing_types.add("flow")
         report.targets.append(TargetStatus(
             skill_name=skill_name,
             target=f"flow://{target_name}",
@@ -102,6 +116,8 @@ def discover(project_root: Path, target_org: str) -> DiscoveryReport:
 
     for target_name, skill_name in apex_targets.items():
         found = apex_results.get(target_name, False)
+        if not found:
+            missing_types.add("apex")
         report.targets.append(TargetStatus(
             skill_name=skill_name,
             target=f"apex://{target_name}",
@@ -113,6 +129,8 @@ def discover(project_root: Path, target_org: str) -> DiscoveryReport:
 
     for target_name, skill_name in retriever_targets.items():
         found = retriever_results.get(target_name, False)
+        if not found:
+            missing_types.add("retriever")
         report.targets.append(TargetStatus(
             skill_name=skill_name,
             target=f"retriever://{target_name}",
@@ -121,6 +139,13 @@ def discover(project_root: Path, target_org: str) -> DiscoveryReport:
             found=found,
             details="Found in org" if found else "Not found",
         ))
+
+    # 5. For missing targets, fetch all resources and suggest similar ones
+    if missing_types:
+        all_resources = _fetch_all_resources(missing_types, cli, target_org)
+        for ts in report.missing:
+            org_names = all_resources.get(ts.target_type, [])
+            ts.suggestions = _suggest_similar(ts.target_name, org_names)
 
     return report
 
@@ -176,3 +201,101 @@ def _extract_names(result, field_name: str, expected: list[str]) -> dict[str, bo
             logger.warning("Could not parse SOQL response")
 
     return {name: name in found_names for name in expected}
+
+
+def _extract_all_names(result, field_name: str) -> list[str]:
+    """Parse SOQL query results into a list of names."""
+    names: list[str] = []
+    if result.returncode == 0 and result.stdout:
+        try:
+            data = json.loads(result.stdout)
+            records = data.get("result", {}).get("records", [])
+            for record in records:
+                name = record.get(field_name)
+                if name:
+                    names.append(name)
+        except (json.JSONDecodeError, KeyError):
+            logger.warning("Could not parse SOQL response for resource listing")
+    return names
+
+
+def _fetch_all_resources(
+    types: set[str],
+    cli: SfAgentCli,
+    org: str,
+) -> dict[str, list[str]]:
+    """Fetch all resource names from the org for given types (cached per call)."""
+    field_map = {
+        "flow": "ApiName",
+        "apex": "Name",
+        "retriever": "DeveloperName",
+    }
+    resources: dict[str, list[str]] = {}
+    for rtype in types:
+        field_name = field_map.get(rtype)
+        if not field_name:
+            continue
+        result = cli.list_resources(rtype, org)
+        resources[rtype] = _extract_all_names(result, field_name)
+    return resources
+
+
+def _tokenize(name: str) -> set[str]:
+    """Split a name into lowercase tokens on underscores and camelCase boundaries."""
+    # First split on underscores
+    parts: list[str] = []
+    for segment in name.split("_"):
+        # Split camelCase: insert boundary before uppercase letters
+        current = []
+        for ch in segment:
+            if ch.isupper() and current:
+                parts.append("".join(current).lower())
+                current = [ch]
+            else:
+                current.append(ch)
+        if current:
+            parts.append("".join(current).lower())
+    return set(parts)
+
+
+def _suggest_similar(
+    target_name: str,
+    org_names: list[str],
+    max_results: int = 3,
+    threshold: float = 0.4,
+) -> list[Suggestion]:
+    """Find similar resource names using sequence matching + keyword overlap.
+
+    Scoring combines:
+    - difflib.SequenceMatcher ratio (string similarity)
+    - Keyword overlap: shared tokens / total unique tokens (Jaccard index)
+    Final score = max(sequence_ratio, keyword_overlap)
+    """
+    if not org_names:
+        return []
+
+    target_tokens = _tokenize(target_name)
+    scored: list[tuple[str, float]] = []
+
+    for org_name in org_names:
+        # Skip exact match (already found)
+        if org_name == target_name:
+            continue
+
+        # Sequence similarity
+        seq_ratio = difflib.SequenceMatcher(
+            None, target_name.lower(), org_name.lower()
+        ).ratio()
+
+        # Keyword overlap (Jaccard)
+        org_tokens = _tokenize(org_name)
+        union = target_tokens | org_tokens
+        overlap = len(target_tokens & org_tokens) / len(union) if union else 0.0
+
+        score = max(seq_ratio, overlap)
+        if score >= threshold:
+            scored.append((org_name, round(score, 2)))
+
+    # Sort by score descending, take top N
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [Suggestion(name=name, similarity=sim) for name, sim in scored[:max_results]]

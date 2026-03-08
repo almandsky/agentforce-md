@@ -17,6 +17,7 @@ class TestConvertCommand:
             "--project-root", str(TEMPLATES_DIR / "hello-world"),
             "--agent-name", "TestAgent",
             "--output-dir", str(tmp_path),
+            "--allow-no-asa",
         ])
         assert rc == 0
         assert (tmp_path / "aiAuthoringBundles" / "TestAgent" / "TestAgent.agent").exists()
@@ -51,6 +52,7 @@ class TestConvertCommand:
             "--project-root", str(tmp_path / "nonexistent"),
             "--agent-name", "Bad",
             "--output-dir", str(tmp_path),
+            "--allow-no-asa",
         ])
         # Should succeed even with no input files (empty agent)
         assert rc == 0
@@ -215,6 +217,34 @@ class TestDeployCommand:
             rc = main(["deploy", "--api-name", "MyAgent", "-o", "TestOrg"])
             assert rc == 1
 
+    def test_deploy_retry_on_transient_error(self):
+        """Transient 'Internal Error' triggers one retry."""
+        with patch("scripts.cli.SfAgentCli") as MockCli, \
+             patch("scripts.cli.time") as mock_time:
+            instance = MockCli.return_value
+            transient = MagicMock(
+                returncode=1, stdout="", stderr="Internal Error, try again later"
+            )
+            success = MagicMock(returncode=0, stdout="{}", stderr="")
+            instance.publish_bundle.side_effect = [transient, success]
+
+            rc = main(["deploy", "--api-name", "MyAgent", "-o", "TestOrg"])
+            assert rc == 0
+            assert instance.publish_bundle.call_count == 2
+            mock_time.sleep.assert_called_once_with(5)
+
+    def test_deploy_no_retry_on_real_error(self):
+        """Real errors are not retried."""
+        with patch("scripts.cli.SfAgentCli") as MockCli:
+            instance = MockCli.return_value
+            instance.publish_bundle.return_value = MagicMock(
+                returncode=1, stdout="", stderr="CompilationError: missing field"
+            )
+
+            rc = main(["deploy", "--api-name", "MyAgent", "-o", "TestOrg"])
+            assert rc == 1
+            assert instance.publish_bundle.call_count == 1
+
 
 class TestPreviewCommand:
     def test_preview_success(self):
@@ -292,13 +322,27 @@ class TestSetupCommand:
 
 class TestConvertWarning:
     def test_warns_missing_asa_for_service_agent(self, tmp_path: Path, capsys):
-        """Service agent without --default-agent-user prints warning."""
-        main([
+        """Service agent without --default-agent-user fails with error."""
+        rc = main([
             "convert",
             "--project-root", str(TEMPLATES_DIR / "hello-world"),
             "--agent-name", "WarnAgent",
             "--output-dir", str(tmp_path),
         ])
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "--default-agent-user is required" in captured.err
+
+    def test_allow_no_asa_flag(self, tmp_path: Path, capsys):
+        """--allow-no-asa downgrades the error to a warning and allows conversion."""
+        rc = main([
+            "convert",
+            "--project-root", str(TEMPLATES_DIR / "hello-world"),
+            "--agent-name", "WarnAgent",
+            "--output-dir", str(tmp_path),
+            "--allow-no-asa",
+        ])
+        assert rc == 0
         captured = capsys.readouterr()
         assert "--default-agent-user not set" in captured.err
 
@@ -336,6 +380,7 @@ class TestConvertErrorHandling:
             "--agent-name", "StrictAgent",
             "--output-dir", str(tmp_path),
             "--strict",
+            "--allow-no-asa",
         ])
         assert rc == 1
 
@@ -358,6 +403,7 @@ class TestConvertErrorHandling:
             "--project-root", str(project),
             "--agent-name", "DupAgent",
             "--output-dir", str(tmp_path / "out"),
+            "--allow-no-asa",
         ])
         assert rc == 1
 
@@ -369,5 +415,6 @@ class TestVerboseFlag:
             "--project-root", str(TEMPLATES_DIR / "hello-world"),
             "--agent-name", "VerboseAgent",
             "--output-dir", str(tmp_path),
+            "--allow-no-asa",
         ])
         assert rc == 0

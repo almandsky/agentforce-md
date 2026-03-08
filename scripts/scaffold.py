@@ -6,11 +6,13 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .deploy.sf_cli import SfAgentCli
 from .discover import DiscoveryReport, TargetStatus, discover
-from .generator.apex_stub import generate_apex_class, generate_apex_meta_xml
+from .generator.apex_stub import generate_apex_class, generate_apex_meta_xml, generate_smart_apex_class
 from .generator.apex_test_stub import generate_apex_test_class
-from .generator.flow_xml import generate_flow_xml
+from .generator.flow_xml import generate_flow_xml, generate_smart_flow_xml
 from .generator.permission_set_xml import generate_permission_set_xml
+from .org_describe import describe_sobject, match_fields
 from .parser.skill_md import discover_skills, parse_skill_md
 
 logger = logging.getLogger(__name__)
@@ -27,13 +29,18 @@ def scaffold(
     report: DiscoveryReport,
     project_root: Path,
     output_dir: Path | None = None,
+    target_org: str | None = None,
 ) -> ScaffoldResult:
     """Generate metadata stubs for missing targets.
+
+    When a SKILL.md specifies a `sobject` and `target_org` is provided,
+    generates smart stubs with real SOQL queries and field mappings.
 
     Args:
         report: Discovery report (from discover step).
         project_root: Root of the Claude Code project.
         output_dir: Where to write stubs. Defaults to force-app/main/default/.
+        target_org: Target org (enables smart scaffold with SObject describe).
 
     Returns:
         ScaffoldResult with list of created files.
@@ -54,13 +61,18 @@ def scaffold(
 
         _warn_number_inputs(target_status.skill_name, inputs, result)
 
+        # Determine SObject for smart scaffold
+        sobject = action_def.sobject if action_def else None
+
         if target_status.target_type == "flow":
             _scaffold_flow(
                 target_status, inputs, outputs, output_dir, result,
+                target_org=target_org, sobject=sobject,
             )
         elif target_status.target_type == "apex":
             _scaffold_apex(
                 target_status, inputs, outputs, output_dir, result,
+                target_org=target_org, sobject=sobject,
             )
             apex_class_names.append(target_status.target_name)
         else:
@@ -91,7 +103,7 @@ def scaffold_from_skills(
         ScaffoldResult with list of created files.
     """
     report = discover(project_root, target_org)
-    return scaffold(report, project_root, output_dir)
+    return scaffold(report, project_root, output_dir, target_org=target_org)
 
 
 def scaffold_all(
@@ -154,16 +166,34 @@ def _scaffold_flow(
     outputs: list,
     output_dir: Path,
     result: ScaffoldResult,
+    target_org: str | None = None,
+    sobject: str | None = None,
 ) -> None:
-    """Generate a stub Flow XML."""
+    """Generate a Flow XML — smart version if SObject is available."""
     flow_dir = output_dir / "flows"
     flow_dir.mkdir(parents=True, exist_ok=True)
 
-    xml_content = generate_flow_xml(
-        api_name=target.target_name,
-        inputs=inputs,
-        outputs=outputs,
-    )
+    xml_content: str
+    if sobject and target_org:
+        fields = describe_sobject(sobject, target_org)
+        if fields:
+            mapping = match_fields(inputs, outputs, fields)
+            xml_content = generate_smart_flow_xml(
+                api_name=target.target_name,
+                sobject=sobject,
+                field_mapping=mapping,
+                inputs=inputs,
+                outputs=outputs,
+            )
+            logger.info("Smart flow scaffold using %s (%d fields)", sobject, len(fields))
+        else:
+            xml_content = generate_flow_xml(
+                api_name=target.target_name, inputs=inputs, outputs=outputs,
+            )
+    else:
+        xml_content = generate_flow_xml(
+            api_name=target.target_name, inputs=inputs, outputs=outputs,
+        )
 
     flow_path = flow_dir / f"{target.target_name}.flow-meta.xml"
     flow_path.write_text(xml_content, encoding="utf-8")
@@ -177,16 +207,37 @@ def _scaffold_apex(
     outputs: list,
     output_dir: Path,
     result: ScaffoldResult,
+    target_org: str | None = None,
+    sobject: str | None = None,
 ) -> None:
-    """Generate an Apex class stub + meta XML + test class + test meta."""
+    """Generate an Apex class stub + meta XML + test class + test meta.
+
+    Uses smart generation with SOQL when SObject is available.
+    """
     classes_dir = output_dir / "classes"
     classes_dir.mkdir(parents=True, exist_ok=True)
 
-    cls_content = generate_apex_class(
-        class_name=target.target_name,
-        inputs=inputs,
-        outputs=outputs,
-    )
+    cls_content: str
+    if sobject and target_org:
+        fields = describe_sobject(sobject, target_org)
+        if fields:
+            mapping = match_fields(inputs, outputs, fields)
+            cls_content = generate_smart_apex_class(
+                class_name=target.target_name,
+                sobject=sobject,
+                field_mapping=mapping,
+                inputs=inputs,
+                outputs=outputs,
+            )
+            logger.info("Smart apex scaffold using %s (%d fields)", sobject, len(fields))
+        else:
+            cls_content = generate_apex_class(
+                class_name=target.target_name, inputs=inputs, outputs=outputs,
+            )
+    else:
+        cls_content = generate_apex_class(
+            class_name=target.target_name, inputs=inputs, outputs=outputs,
+        )
     meta_content = generate_apex_meta_xml()
 
     cls_path = classes_dir / f"{target.target_name}.cls"

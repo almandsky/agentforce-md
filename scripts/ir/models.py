@@ -71,6 +71,7 @@ class ActionDefinition:
     include_in_progress_indicator: bool = False
     progress_indicator_message: Optional[str] = None
     source: Optional[str] = None
+    sobject: Optional[str] = None  # Target SObject for smart scaffold
 
 
 @dataclass

@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import sys
+import time
 from pathlib import Path
 
 
@@ -66,6 +67,11 @@ def main(argv: list[str] | None = None) -> int:
         "--strict",
         action="store_true",
         help="Fail if any tools are missing agentforce: target in their SKILL.md",
+    )
+    convert_parser.add_argument(
+        "--allow-no-asa",
+        action="store_true",
+        help="Allow converting a Service agent without --default-agent-user",
     )
 
     # deploy command — publish bundle + optional activate
@@ -235,12 +241,25 @@ def _ensure_sfdx_project_json() -> None:
 
 def _cmd_convert(args: argparse.Namespace) -> int:
     if args.agent_type == "AgentforceServiceAgent" and not args.default_agent_user:
-        print(
-            "Warning: --default-agent-user not set. Service agents require an ASA user.\n"
-            f"  Run: {_cli_name()} setup -o <YourOrg>\n"
-            "  to find available ASA users in your org.",
-            file=sys.stderr,
-        )
+        if args.allow_no_asa:
+            print(
+                "Warning: --default-agent-user not set. Service agents require an ASA user.\n"
+                f"  Run: {_cli_name()} setup -o <YourOrg>\n"
+                "  to find available ASA users in your org.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "Error: --default-agent-user is required for Service agents.\n"
+                "  The agent will not deploy without a default_agent_user.\n"
+                "\n"
+                f"  Run: {_cli_name()} setup -o <YourOrg>\n"
+                "  to find available ASA users in your org.\n"
+                "\n"
+                "  Pass --allow-no-asa to skip this check.",
+                file=sys.stderr,
+            )
+            return 1
 
     try:
         bundle_dir = convert(
@@ -302,6 +321,18 @@ def _cmd_deploy(args: argparse.Namespace) -> int:
         args.target_org,
         skip_retrieve=args.skip_retrieve,
     )
+    # Auto-retry once on transient server errors
+    if result.returncode != 0:
+        combined = (result.stdout or "") + (result.stderr or "")
+        if "Internal Error" in combined or "try again later" in combined.lower():
+            print("Transient error detected — retrying in 5 seconds...", file=sys.stderr)
+            time.sleep(5)
+            print(f"{step} Retrying publish...")
+            result = cli.publish_bundle(
+                args.api_name,
+                args.target_org,
+                skip_retrieve=args.skip_retrieve,
+            )
     if result.returncode != 0:
         # Check if it's just a cosmetic retrieval warning (agent published OK)
         try:
@@ -343,6 +374,14 @@ def _cmd_deploy(args: argparse.Namespace) -> int:
                 print(result.stdout, file=sys.stderr)
             return 1
         print("Agent is now active.")
+
+    # Next steps
+    print(f"\nNext steps:")
+    print(f"  • Preview:    {_cli_name()} preview --api-name {args.api_name} -o {args.target_org} --client-app <app>")
+    if not args.activate:
+        print(f"  • Activate:   {_cli_name()} deploy --api-name {args.api_name} -o {args.target_org} --activate")
+    print(f"  • Agent test: sf agent test run --api-name {args.api_name} -o {args.target_org}")
+    print(f"                (Requires an AiEvalDefinitionVersion — see 'sf agent test' docs)")
 
     return 0
 
@@ -396,8 +435,17 @@ def _cmd_preview(args: argparse.Namespace) -> int:
 
     if not args.client_app:
         print(
-            "Error: --client-app is required. Use a linked client app name.\n"
-            'See: sf org login web --client-app <name>',
+            "Error: --client-app is required.\n"
+            "\n"
+            "A client app connects your agent to a messaging channel (web, Slack, etc.).\n"
+            "\n"
+            "To find or create one:\n"
+            "  1. In Setup, search for 'Messaging for In-App and Web'\n"
+            "  2. Find an existing deployment, or create a new one\n"
+            "  3. Use the deployment's API name as --client-app\n"
+            "\n"
+            "Then:\n"
+            f"  {_cli_name()} preview --api-name {args.api_name} -o {args.target_org} --client-app <name>",
             file=sys.stderr,
         )
         return 1
@@ -464,6 +512,27 @@ def _cmd_discover(args: argparse.Namespace) -> int:
     print(f"\n  {found_count} found, {missing_count} missing")
 
     if report.missing:
+        # Show suggestions for missing targets
+        has_suggestions = any(t.suggestions for t in report.missing)
+        if has_suggestions:
+            print("\n  Suggestions for missing targets:")
+            for t in report.missing:
+                if t.suggestions:
+                    print(f"\n    {t.skill_name} \u2192 {t.target}")
+                    type_label = {"flow": "flows", "apex": "Apex classes", "retriever": "prompt templates"}.get(t.target_type, "resources")
+                    print(f"      Similar {type_label} in the org:")
+                    for s in t.suggestions:
+                        print(f"        \u2022 {s.name}  (similarity: {s.similarity:.2f})")
+                    # Show how to reuse the top suggestion
+                    top = t.suggestions[0]
+                    print(f"      To reuse, update .claude/skills/{t.skill_name}/SKILL.md:")
+                    print(f"        agentforce:")
+                    print(f'          target: "{t.target_type}://{top.name}"')
+                else:
+                    print(f"\n    {t.skill_name} \u2192 {t.target}")
+                    type_label = {"flow": "flows", "apex": "Apex classes", "retriever": "prompt templates"}.get(t.target_type, "resources")
+                    print(f"      No similar {type_label} found in the org.")
+
         print("\n  To generate stubs for missing targets, run:")
         print(f"    {_cli_name()} scaffold --project-root {args.project_root} -o {args.target_org}")
         return 1
@@ -499,8 +568,12 @@ def _cmd_scaffold(args: argparse.Namespace) -> int:
         print(f"  Warning: {warning}", file=sys.stderr)
 
     print("\nNext steps:")
-    print("  1. Review and fill in business logic in the generated stubs")
+    print("  1. Review the generated stubs (smart stubs include SOQL — verify field names)")
     print("  2. Deploy: sf project deploy start --source-dir force-app/main/default -o <org>")
+    print("  3. Run Apex tests: sf apex run test -n <TestClassName> -o <org>")
+    print("  4. Agent tests: sf agent test run --api-name <AgentName> -o <org>")
+    print("     (Requires an AiEvalDefinitionVersion — see 'sf agent test' docs)")
+    print("\n  Tip: Add 'sobject: ObjectName' to SKILL.md agentforce section for smart scaffold")
     return 0
 
 

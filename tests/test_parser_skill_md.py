@@ -164,6 +164,45 @@ agentforce:
     assert action.outputs[0].is_displayable is True
 
 
+def test_skill_parses_sobject(tmp_path: Path):
+    """The sobject field is parsed from agentforce frontmatter."""
+    md = tmp_path / "SKILL.md"
+    md.write_text("""---
+name: search-homes
+description: Search for homes
+agentforce:
+  target: "apex://SearchHomesAction"
+  sobject: "Property__c"
+  inputs:
+    state:
+      type: string
+      description: "US state abbreviation"
+  outputs:
+    results_json:
+      type: string
+      description: "JSON array of matching homes"
+---
+""")
+    action = parse_skill_md(md)
+    assert action is not None
+    assert action.sobject == "Property__c"
+    assert action.target == "apex://SearchHomesAction"
+
+
+def test_skill_sobject_defaults_to_none(tmp_path: Path):
+    """sobject defaults to None when not specified."""
+    md = tmp_path / "SKILL.md"
+    md.write_text("""---
+name: basic
+description: Basic action
+agentforce:
+  target: "flow://Basic"
+---
+""")
+    action = parse_skill_md(md)
+    assert action.sobject is None
+
+
 def test_discover_skills(tmp_project: Path):
     skills_dir = tmp_project / ".claude" / "skills"
     (skills_dir / "skill-a").mkdir()

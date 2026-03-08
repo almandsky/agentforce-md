@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
+from scripts.deploy.sf_cli import CliResult
 from scripts.discover import DiscoveryReport, TargetStatus
 from scripts.scaffold import scaffold, scaffold_all, _load_skill_actions
 
@@ -239,3 +242,117 @@ Body.
     assert len(number_warnings) == 1
     assert "quantity" in number_warnings[0]
     assert "Decimal" in number_warnings[0]
+
+
+# --- Smart scaffold tests ---
+
+
+def _create_skill_with_sobject(
+    project_root: Path, skill_name: str, target: str, sobject: str,
+) -> None:
+    """Create a SKILL.md with a target and sobject."""
+    skill_dir = project_root / ".claude" / "skills" / skill_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(f"""---
+name: {skill_name}
+description: Test skill with sobject
+agentforce:
+  target: "{target}"
+  sobject: "{sobject}"
+  inputs:
+    state:
+      type: string
+      description: "US state abbreviation"
+  outputs:
+    results_json:
+      type: string
+      description: "JSON array of matching records"
+---
+Test body.
+""")
+
+
+def _mock_describe_response() -> CliResult:
+    """Mock org describe response for Property__c."""
+    records = [
+        {"QualifiedApiName": "Name", "Label": "Name", "DataType": "Text", "IsFilterable": True},
+        {"QualifiedApiName": "State__c", "Label": "State", "DataType": "Text", "IsFilterable": True},
+        {"QualifiedApiName": "Price__c", "Label": "Price", "DataType": "Currency", "IsFilterable": True},
+    ]
+    return CliResult(returncode=0, stdout=json.dumps({"result": {"records": records}}), stderr="")
+
+
+def test_smart_scaffold_apex(tmp_project: Path):
+    """Smart scaffold generates Apex with SOQL when sobject is specified."""
+    _create_skill_with_sobject(tmp_project, "search-homes", "apex://SearchHomesAction", "Property__c")
+    report = _make_report([("search-homes", "apex://SearchHomesAction", "apex")])
+    output_dir = tmp_project / "force-app" / "main" / "default"
+
+    with patch("scripts.scaffold.describe_sobject") as mock_describe:
+        from scripts.org_describe import FieldInfo
+        mock_describe.return_value = [
+            FieldInfo(name="Name", label="Name", data_type="Text", filterable=True),
+            FieldInfo(name="State__c", label="State", data_type="Text", filterable=True),
+            FieldInfo(name="Price__c", label="Price", data_type="Currency", filterable=True),
+        ]
+        result = scaffold(report, tmp_project, output_dir, target_org="TestOrg")
+
+    cls_path = output_dir / "classes" / "SearchHomesAction.cls"
+    assert cls_path.exists()
+    content = cls_path.read_text()
+    # Smart scaffold should have SOQL query
+    assert "FROM Property__c" in content
+    assert "State__c" in content
+
+
+def test_smart_scaffold_flow(tmp_project: Path):
+    """Smart scaffold generates Flow with GetRecords when sobject is specified."""
+    _create_skill_with_sobject(tmp_project, "search-homes", "flow://Search_Homes", "Property__c")
+    report = _make_report([("search-homes", "flow://Search_Homes", "flow")])
+    output_dir = tmp_project / "force-app" / "main" / "default"
+
+    with patch("scripts.scaffold.describe_sobject") as mock_describe:
+        from scripts.org_describe import FieldInfo
+        mock_describe.return_value = [
+            FieldInfo(name="Name", label="Name", data_type="Text", filterable=True),
+            FieldInfo(name="State__c", label="State", data_type="Text", filterable=True),
+        ]
+        result = scaffold(report, tmp_project, output_dir, target_org="TestOrg")
+
+    flow_path = output_dir / "flows" / "Search_Homes.flow-meta.xml"
+    assert flow_path.exists()
+    content = flow_path.read_text()
+    # Smart flow should have recordLookups
+    assert "<recordLookups>" in content
+    assert f"<object>Property__c</object>" in content
+
+
+def test_smart_scaffold_falls_back_without_target_org(tmp_project: Path):
+    """Without target_org, smart scaffold falls back to regular stubs."""
+    _create_skill_with_sobject(tmp_project, "search-homes", "apex://SearchHomesAction", "Property__c")
+    report = _make_report([("search-homes", "apex://SearchHomesAction", "apex")])
+    output_dir = tmp_project / "force-app" / "main" / "default"
+
+    # No target_org — should use regular stub
+    result = scaffold(report, tmp_project, output_dir)
+
+    cls_path = output_dir / "classes" / "SearchHomesAction.cls"
+    assert cls_path.exists()
+    content = cls_path.read_text()
+    # Should be regular stub, not smart
+    assert "// TODO: Implement business logic" in content
+
+
+def test_smart_scaffold_falls_back_on_describe_failure(tmp_project: Path):
+    """If describe returns no fields, fall back to regular stubs."""
+    _create_skill_with_sobject(tmp_project, "search-homes", "apex://SearchHomesAction", "Property__c")
+    report = _make_report([("search-homes", "apex://SearchHomesAction", "apex")])
+    output_dir = tmp_project / "force-app" / "main" / "default"
+
+    with patch("scripts.scaffold.describe_sobject") as mock_describe:
+        mock_describe.return_value = []  # No fields returned
+        result = scaffold(report, tmp_project, output_dir, target_org="TestOrg")
+
+    cls_path = output_dir / "classes" / "SearchHomesAction.cls"
+    content = cls_path.read_text()
+    assert "// TODO: Implement business logic" in content

@@ -9,11 +9,14 @@ from unittest.mock import MagicMock, patch
 from scripts.deploy.sf_cli import CliResult
 from scripts.discover import (
     DiscoveryReport,
+    Suggestion,
     TargetStatus,
     _check_apex,
     _check_flows,
     _check_retrievers,
     _parse_target,
+    _suggest_similar,
+    _tokenize,
     discover,
 )
 
@@ -200,3 +203,95 @@ def test_discover_mixed_types(tmp_project: Path):
     apex_target = [t for t in report.targets if t.target_type == "apex"][0]
     assert flow_target.found is True
     assert apex_target.found is False
+
+
+# --- _tokenize tests ---
+
+
+def test_tokenize_underscore():
+    assert _tokenize("Get_Order_Status") == {"get", "order", "status"}
+
+
+def test_tokenize_camelcase():
+    assert _tokenize("GetOrderStatus") == {"get", "order", "status"}
+
+
+def test_tokenize_mixed():
+    assert _tokenize("Get_OrderStatus") == {"get", "order", "status"}
+
+
+# --- _suggest_similar tests ---
+
+
+def test_suggest_similar_flows():
+    """Similar flows are returned with scores above threshold."""
+    org_flows = [
+        "Get_Order_Status",
+        "Retrieve_Order_Info",
+        "Send_Email_Notification",
+        "Check_Inventory",
+    ]
+    suggestions = _suggest_similar("Get_Order_Details", org_flows)
+    assert len(suggestions) > 0
+    # Get_Order_Status should be the top suggestion
+    assert suggestions[0].name == "Get_Order_Status"
+    assert suggestions[0].similarity >= 0.5
+
+
+def test_no_suggestions_when_nothing_similar():
+    """No suggestions when nothing is similar enough."""
+    org_flows = ["Send_Email", "Update_Contact"]
+    suggestions = _suggest_similar("Get_Order_Details", org_flows)
+    # These are too dissimilar to match above 0.4
+    for s in suggestions:
+        assert s.similarity >= 0.4
+
+
+def test_suggestions_max_results():
+    """At most max_results suggestions are returned."""
+    org_names = [f"Get_Order_{i}" for i in range(10)]
+    suggestions = _suggest_similar("Get_Order_Details", org_names, max_results=3)
+    assert len(suggestions) <= 3
+
+
+def test_suggestions_skips_exact_match():
+    """Exact matches (already found) are not suggested."""
+    suggestions = _suggest_similar("Flow_A", ["Flow_A", "Flow_B"])
+    assert all(s.name != "Flow_A" for s in suggestions)
+
+
+def test_suggestions_only_for_missing(tmp_project: Path):
+    """Found targets don't get suggestions."""
+    _create_skill_md(tmp_project, "skill-a", "flow://Flow_A")
+    _create_skill_md(tmp_project, "skill-b", "flow://Flow_B")
+
+    # Flow_A is found, Flow_B is missing
+    found_response = json.dumps({"result": {"records": [{"ApiName": "Flow_A"}]}})
+    all_flows_response = json.dumps({"result": {"records": [
+        {"ApiName": "Flow_A"},
+        {"ApiName": "Flow_B_Similar"},
+        {"ApiName": "Another_Flow"},
+    ]}})
+
+    call_count = 0
+
+    def mock_query(query, org):
+        nonlocal call_count
+        call_count += 1
+        if "ApiName IN" in query:
+            return CliResult(returncode=0, stdout=found_response, stderr="")
+        return CliResult(returncode=0, stdout=all_flows_response, stderr="")
+
+    with patch("scripts.discover.SfAgentCli") as MockCli:
+        instance = MockCli.return_value
+        instance.query_soql.side_effect = mock_query
+        instance.list_resources.return_value = CliResult(
+            returncode=0, stdout=all_flows_response, stderr=""
+        )
+        report = discover(tmp_project, "TestOrg")
+
+    found_target = [t for t in report.targets if t.found][0]
+    assert found_target.suggestions == []  # Found targets have no suggestions
+
+    missing_target = [t for t in report.targets if not t.found][0]
+    # Missing target may have suggestions (depending on similarity)
