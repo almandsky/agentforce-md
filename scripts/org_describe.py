@@ -51,7 +51,7 @@ def describe_sobject(
         cli = SfAgentCli()
 
     soql = (
-        "SELECT QualifiedApiName, Label, DataType, IsFilterable "
+        "SELECT QualifiedApiName, Label, DataType, IsApiFilterable "
         "FROM FieldDefinition "
         f"WHERE EntityDefinition.QualifiedApiName = '{object_name}'"
     )
@@ -59,7 +59,17 @@ def describe_sobject(
 
     fields: list[FieldInfo] = []
     if result.returncode != 0:
-        logger.warning("Failed to describe %s: %s", object_name, result.stderr)
+        # Try to extract a useful error message
+        error_detail = result.stderr.strip()
+        if not error_detail:
+            try:
+                err_data = json.loads(result.stdout)
+                error_detail = err_data.get("message", "").strip()
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        if not error_detail:
+            error_detail = f"SObject '{object_name}' may not exist in the org"
+        logger.warning("Failed to describe %s: %s", object_name, error_detail)
         return fields
 
     try:
@@ -70,7 +80,7 @@ def describe_sobject(
                 name=record.get("QualifiedApiName", ""),
                 label=record.get("Label", ""),
                 data_type=record.get("DataType", ""),
-                filterable=record.get("IsFilterable", False),
+                filterable=record.get("IsApiFilterable", False),
             ))
     except (json.JSONDecodeError, KeyError):
         logger.warning("Could not parse describe response for %s", object_name)

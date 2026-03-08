@@ -51,19 +51,19 @@ def test_describe_sobject_parses_fields():
             "QualifiedApiName": "State__c",
             "Label": "State",
             "DataType": "Text",
-            "IsFilterable": True,
+            "IsApiFilterable": True,
         },
         {
             "QualifiedApiName": "Price__c",
             "Label": "Price",
             "DataType": "Currency",
-            "IsFilterable": True,
+            "IsApiFilterable": True,
         },
         {
             "QualifiedApiName": "Description__c",
             "Label": "Description",
             "DataType": "LongTextArea",
-            "IsFilterable": False,
+            "IsApiFilterable": False,
         },
     ])
 
