@@ -71,6 +71,38 @@ The `name` field is the API name to pass to `AgentforceOptimizeService`.
 
 Store the selected `name` value as `DATA_SPACE` for all subsequent steps.
 
+### Prerequisite check: STDM DMOs
+
+After deploying the helper class (step 1.0), run a quick probe to verify the STDM Data Model Objects exist in Data Cloud:
+
+```bash
+sf apex run -o <org> -f /dev/stdin << 'APEX'
+ConnectApi.CdpQueryInput qi = new ConnectApi.CdpQueryInput();
+qi.sql = 'SELECT ssot__Id__c FROM "ssot__AiAgentSession__dlm" LIMIT 1';
+try {
+    ConnectApi.CdpQueryOutputV2 out = ConnectApi.CdpQuery.queryAnsiSqlV2(qi, '<DATA_SPACE>');
+    System.debug('STDM_CHECK:OK rows=' + (out.data != null ? out.data.size() : 0));
+} catch (Exception e) {
+    System.debug('STDM_CHECK:FAIL ' + e.getMessage());
+}
+APEX
+```
+
+**If the debug log contains `STDM_CHECK:FAIL` or a `404 NOT_FOUND` error mentioning `ssot__AiAgentSession__dlm`:**
+
+The Session Trace Data Model is **not activated** in this org. This is a prerequisite for the optimize workflow. Inform the user:
+
+> STDM (Session Trace Data Model) is not available in this org. The `ssot__AiAgentSession__dlm` DMO was not found in Data Cloud.
+>
+> To enable it:
+> 1. Go to **Setup → Data Cloud → Data Streams** and verify "Agentforce Activity" data stream is active
+> 2. Or go to **Setup → Einstein → Agentforce → Settings** and enable "Session Trace Data"
+> 3. After enabling, wait ~15 minutes for DMOs to be provisioned
+>
+> Without STDM, Phase 1 (Observe) cannot query session traces. You can still use Phase 2 (Reproduce) with `sf agent preview` to manually test the agent, and Phase 3 (Improve) to edit markdown files.
+
+**If `STDM_CHECK:OK`**, proceed to Phase 1.
+
 ---
 
 ## Phase 1: Observe — Query STDM

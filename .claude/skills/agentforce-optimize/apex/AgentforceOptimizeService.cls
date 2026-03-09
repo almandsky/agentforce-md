@@ -466,9 +466,16 @@ public with sharing class AgentforceOptimizeService {
     private static List<String> resolvePlannerIds(String agentApiName) {
         List<String> ids = new List<String>();
         try {
+            // Search by MasterLabel (exact match) OR DeveloperName pattern.
+            // Agent Script agents create GenAiPlannerDefinition with DeveloperName
+            // like 'LennarHomeAgent_v1' and MasterLabel like 'Lennar Home Agent'.
+            // Accept the API name (no spaces) and match both patterns.
+            String devNamePattern = agentApiName + '_%';
             List<GenAiPlannerDefinition> planners = [
                 SELECT Id FROM GenAiPlannerDefinition
                 WHERE MasterLabel = :agentApiName
+                   OR DeveloperName = :agentApiName
+                   OR DeveloperName LIKE :devNamePattern
             ];
             for (GenAiPlannerDefinition p : planners) {
                 String id18 = String.valueOf(p.Id);
@@ -477,7 +484,7 @@ public with sharing class AgentforceOptimizeService {
                 if (id18.length() == 18) ids.add(id18.substring(0, 15));
             }
             if (ids.isEmpty()) {
-                System.debug(LoggingLevel.WARN, 'No GenAiPlannerDefinition found for MasterLabel: ' + agentApiName);
+                System.debug(LoggingLevel.WARN, 'No GenAiPlannerDefinition found for: ' + agentApiName);
             } else {
                 System.debug(LoggingLevel.DEBUG, 'Resolved ' + planners.size() + ' planner version(s) for agent "'
                     + agentApiName + '": ' + ids);
