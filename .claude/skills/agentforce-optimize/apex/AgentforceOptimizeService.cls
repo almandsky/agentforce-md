@@ -328,6 +328,37 @@ public with sharing class AgentforceOptimizeService {
             }
         }
 
+        // Infer message types when ssot__AiAgentInteractionMessageType__c is null.
+        // In STDM, messages within a turn alternate: user Input first, then agent Output.
+        // If ALL messages in a turn have null type, assign by position (odd=Input, even=Output).
+        for (TurnData t : convo.turns) {
+            Boolean anyNull = false;
+            Boolean allNull = true;
+            for (MessageData m : t.messages) {
+                if (m.message_type == null) { anyNull = true; }
+                else { allNull = false; }
+            }
+            if (anyNull && allNull) {
+                // All null — infer from position: 1st=Input, 2nd=Output, 3rd=Input, ...
+                for (Integer i = 0; i < t.messages.size(); i++) {
+                    t.messages[i].message_type = (Math.mod(i, 2) == 0) ? 'Input' : 'Output';
+                }
+            } else if (anyNull) {
+                // Mixed — fill gaps by inferring the opposite of the nearest known neighbor
+                for (Integer i = 0; i < t.messages.size(); i++) {
+                    if (t.messages[i].message_type == null) {
+                        // Look at previous message for context
+                        if (i > 0 && t.messages[i - 1].message_type != null) {
+                            t.messages[i].message_type = 'Input'.equals(t.messages[i - 1].message_type)
+                                ? 'Output' : 'Input';
+                        } else if (i == 0) {
+                            t.messages[i].message_type = 'Input'; // first message is always user
+                        }
+                    }
+                }
+            }
+        }
+
         // --- Steps ---
         // All issue-detection fields are selected:
         //   ssot__ErrorMessageText__c        → Action error (P1)
